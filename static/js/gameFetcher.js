@@ -112,6 +112,8 @@ function extractGameData(game, username) {
     };
 }
 
+const MAX_GAMES = 20;
+
 async function fetchAllGames(username, onProgress) {
     fetchAbortController = new AbortController();
 
@@ -130,6 +132,11 @@ async function fetchAllGames(username, onProgress) {
         const allGames = [];
 
         for (let i = 0; i < sortedArchives.length; i++) {
+            // Stop if we've reached the limit
+            if (allGames.length >= MAX_GAMES) {
+                break;
+            }
+
             const archiveUrl = sortedArchives[i];
             const month = archiveUrl.split('/').slice(-2).join('/');
 
@@ -148,6 +155,9 @@ async function fetchAllGames(username, onProgress) {
                 const filtered = games.filter(filterGame);
 
                 for (const game of filtered) {
+                    if (allGames.length >= MAX_GAMES) {
+                        break;
+                    }
                     const extracted = extractGameData(game, username);
                     allGames.push(extracted);
                 }

@@ -16,8 +16,8 @@ function initStockfish() {
         }
 
         try {
-            // Use stockfish.js from CDN
-            stockfish = new Worker('https://unpkg.com/stockfish.js@10.0.2/stockfish.js');
+            // Use local stockfish.js file
+            stockfish = new Worker('static/js/stockfish.js');
 
             let initialized = false;
 
