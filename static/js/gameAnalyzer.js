@@ -1,6 +1,6 @@
 // Game Analyzer - analyzes games using Stockfish WASM (ported from analyze_games.py)
 
-const ANALYSIS_DEPTH = 15;
+const ANALYSIS_DEPTH = 12;  // Reduced for faster browser analysis
 const MOVES_TO_ANALYZE = 14;  // First 14 half-moves (7 per player)
 const MISTAKE_THRESHOLD = 100;  // Centipawns (1 pawn)
 
@@ -25,7 +25,7 @@ function initStockfish() {
                 if (event.data === 'uciok' && !initialized) {
                     initialized = true;
                     // Set options for better performance
-                    stockfish.postMessage('setoption name Hash value 32');
+                    stockfish.postMessage('setoption name Hash value 128');  // More hash = better performance
                     stockfish.postMessage('isready');
                 }
                 if (event.data === 'readyok' && initialized) {
