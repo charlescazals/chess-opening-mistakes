@@ -415,3 +415,267 @@ tbody tr {
     padding: 30px;
     color: #888;
 }
+
+/* Setup Screen */
+.setup-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+}
+.setup-box {
+    background: #16213e;
+    border-radius: 15px;
+    padding: 40px;
+    max-width: 450px;
+    width: 100%;
+    text-align: center;
+}
+.setup-box h1 {
+    margin: 0 0 10px 0;
+    font-size: 28px;
+}
+.setup-box p {
+    color: #888;
+    margin-bottom: 30px;
+}
+.setup-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.setup-input {
+    background: #0f3460;
+    border: 2px solid #1a4d7a;
+    color: #fff;
+    padding: 15px 20px;
+    border-radius: 8px;
+    font-size: 16px;
+    text-align: center;
+}
+.setup-input:focus {
+    outline: none;
+    border-color: #e94560;
+}
+.setup-input::placeholder {
+    color: #666;
+}
+.setup-btn {
+    background: #e94560;
+    color: #fff;
+    border: none;
+    padding: 15px 30px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.setup-btn:hover {
+    background: #d63850;
+}
+.setup-btn:disabled {
+    background: #666;
+    cursor: not-allowed;
+}
+.setup-error {
+    background: rgba(233, 69, 96, 0.2);
+    border: 1px solid #e94560;
+    color: #ff6b6b;
+    padding: 12px;
+    border-radius: 5px;
+    font-size: 14px;
+    display: none;
+}
+.setup-note {
+    margin-top: 20px;
+    font-size: 12px;
+    color: #666;
+}
+
+/* Header with config button */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.header h1 {
+    margin: 0;
+    flex: 1;
+    text-align: center;
+}
+.header-spacer {
+    width: 40px;
+}
+.config-btn {
+    background: transparent;
+    border: 1px solid #1a4d7a;
+    color: #888;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+.config-btn:hover {
+    background: #1a4d7a;
+    color: #fff;
+}
+
+/* Config Menu */
+.config-menu {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    background: #16213e;
+    border-radius: 10px;
+    padding: 20px;
+    min-width: 280px;
+    box-shadow: 0 5px 30px rgba(0, 0, 0, 0.5);
+    z-index: 1001;
+    display: none;
+}
+.config-menu.open {
+    display: block;
+}
+.config-menu h3 {
+    margin: 0 0 15px 0;
+    font-size: 16px;
+    color: #888;
+    border-bottom: 1px solid #0f3460;
+    padding-bottom: 10px;
+}
+.config-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.config-stat {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+}
+.config-stat-label {
+    color: #888;
+}
+.config-stat-value {
+    color: #fff;
+    font-weight: bold;
+}
+.config-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.config-action-btn {
+    background: #0f3460;
+    border: 1px solid #1a4d7a;
+    color: #fff;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    text-align: left;
+    transition: all 0.2s;
+}
+.config-action-btn:hover {
+    background: #1a4d7a;
+}
+.config-action-btn.danger {
+    border-color: #5a2727;
+}
+.config-action-btn.danger:hover {
+    background: #5a2727;
+}
+
+/* Progress Overlay */
+.progress-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+}
+.progress-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+}
+.progress-modal {
+    background: #16213e;
+    border-radius: 15px;
+    padding: 30px;
+    max-width: 450px;
+    width: 90%;
+}
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+.progress-header h2 {
+    margin: 0;
+    font-size: 20px;
+}
+.progress-cancel-btn {
+    background: transparent;
+    border: 1px solid #5a2727;
+    color: #cf6363;
+    padding: 8px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.progress-cancel-btn:hover {
+    background: #5a2727;
+}
+.progress-body {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.progress-message {
+    font-size: 14px;
+    color: #aaa;
+    min-height: 20px;
+}
+.progress-bar-container {
+    background: #0f3460;
+    border-radius: 10px;
+    height: 20px;
+    overflow: hidden;
+}
+.progress-bar {
+    background: linear-gradient(90deg, #e94560, #ff6b6b);
+    height: 100%;
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 10px;
+}
+.progress-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #888;
+}
+.progress-details {
+    font-size: 12px;
+    color: #666;
+    min-height: 16px;
+}

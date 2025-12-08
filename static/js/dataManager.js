@@ -4,19 +4,68 @@ let allData = [];
 let filteredData = [];
 let currentSort = { field: 'occurrences', direction: 'desc' };
 
-function loadData() {
-    return fetch('/api/mistakes/by-sequence')
-        .then(res => res.json())
-        .then(data => {
-            allData = data;
-            filteredData = [...data];
-            updateStats();
-            applyFilters();
-        })
-        .catch(err => {
-            document.getElementById('table-body').innerHTML =
-                '<tr><td colspan="5" class="loading">Error loading data. Run analyze_games.py first.</td></tr>';
+function groupMistakesBySequence(mistakes) {
+    // Group mistakes by move sequence (replicates Flask /api/mistakes/by-sequence logic)
+    const bySequence = {};
+
+    for (const mistake of mistakes) {
+        const seq = (mistake.move_sequence || []).join(' ');
+        if (!bySequence[seq]) {
+            bySequence[seq] = {
+                sequence: seq,
+                move_count: (mistake.move_sequence || []).length,
+                opening: mistake.opening || 'Unknown',
+                player_color: mistake.player_color || 'unknown',
+                games: []
+            };
+        }
+
+        bySequence[seq].games.push({
+            game_url: mistake.game_url || '',
+            time_class: mistake.time_class || '',
+            time_control: mistake.time_control || '',
+            end_time: mistake.end_time || 0,
+            eval_before: mistake.eval_before || 0,
+            eval_after: mistake.eval_after || 0,
+            eval_drop: mistake.eval_drop || 0,
+            fen: mistake.fen || '',
+            move_sequence: mistake.move_sequence || [],
+            best_move: mistake.best_move || '',
+            result: mistake.result || '',
+            white: mistake.white || {},
+            black: mistake.black || {}
         });
+    }
+
+    // Add occurrence count and average eval drop
+    for (const seqData of Object.values(bySequence)) {
+        seqData.occurrences = seqData.games.length;
+        const totalDrop = seqData.games.reduce((sum, g) => sum + g.eval_drop, 0);
+        seqData.avg_eval_drop = seqData.games.length > 0 ? totalDrop / seqData.games.length : 0;
+    }
+
+    // Sort by occurrences descending
+    return Object.values(bySequence).sort((a, b) => b.occurrences - a.occurrences);
+}
+
+function loadDataFromStorage() {
+    const mistakes = getMistakes();
+
+    if (mistakes.length === 0) {
+        document.getElementById('table-body').innerHTML =
+            '<tr><td colspan="6" class="no-results">No mistakes found. Set up your account to get started.</td></tr>';
+        return;
+    }
+
+    allData = groupMistakesBySequence(mistakes);
+    filteredData = [...allData];
+    updateStats();
+    applyFilters();
+}
+
+function loadData() {
+    // Legacy function - now loads from localStorage
+    loadDataFromStorage();
 }
 
 function updateStats() {
@@ -25,13 +74,13 @@ function updateStats() {
 }
 
 function applyFilters() {
-    const seqFilter = document.getElementById('filter-seq').value.toLowerCase();
-    const openingFilter = document.getElementById('filter-opening').value.toLowerCase();
-    const colorFilter = document.getElementById('filter-color').value;
-    const minOcc = parseInt(document.getElementById('filter-min-occ').value) || 0;
-    const maxMoves = parseInt(document.getElementById('filter-max-moves').value) || Infinity;
-    const impactFilter = document.getElementById('filter-impact').value;
-    const opponentFilter = document.getElementById('filter-opponent').value.toLowerCase();
+    const seqFilter = document.getElementById('filter-seq')?.value.toLowerCase() || '';
+    const openingFilter = document.getElementById('filter-opening')?.value.toLowerCase() || '';
+    const colorFilter = document.getElementById('filter-color')?.value || '';
+    const minOcc = parseInt(document.getElementById('filter-min-occ')?.value) || 0;
+    const maxMoves = parseInt(document.getElementById('filter-max-moves')?.value) || Infinity;
+    const impactFilter = document.getElementById('filter-impact')?.value || '';
+    const opponentFilter = document.getElementById('filter-opponent')?.value.toLowerCase() || '';
 
     filteredData = allData.filter(row => {
         if (seqFilter && !row.sequence.toLowerCase().includes(seqFilter)) return false;
@@ -86,11 +135,15 @@ function handleSort(field) {
     // Update header icons
     document.querySelectorAll('th').forEach(th => {
         th.classList.remove('sorted');
-        th.querySelector('.sort-icon').textContent = '↕';
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.textContent = '↕';
     });
     const th = document.querySelector(`th[data-sort="${field}"]`);
-    th.classList.add('sorted');
-    th.querySelector('.sort-icon').textContent = currentSort.direction === 'asc' ? '↑' : '↓';
+    if (th) {
+        th.classList.add('sorted');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.textContent = currentSort.direction === 'asc' ? '↑' : '↓';
+    }
 
     applySort();
     renderTable();

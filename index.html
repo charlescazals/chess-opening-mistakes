@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Opening Mistakes Analyzer</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <link rel="stylesheet" href="static/css/styles.css">
+</head>
+<body>
+    <!-- Setup Screen (shown when no data exists) -->
+    <div id="setup-screen" class="setup-screen" style="display: none;">
+        <div class="setup-box">
+            <h1>Chess Mistakes Analyzer</h1>
+            <p>Analyze your Chess.com games to find recurring opening mistakes</p>
+            <form id="setup-form" class="setup-form">
+                <input type="text" id="setup-username" class="setup-input" placeholder="Enter your Chess.com username" required>
+                <div id="setup-error" class="setup-error"></div>
+                <button type="submit" class="setup-btn">Analyze My Games</button>
+            </form>
+            <p class="setup-note">
+                This will fetch your blitz and rapid games and analyze them using Stockfish running in your browser.
+                Analysis may take a few minutes depending on the number of games.
+            </p>
+        </div>
+    </div>
+
+    <!-- Main Content (shown when data exists) -->
+    <div id="main-content" style="display: none;">
+        <div class="header">
+            <div class="header-spacer"></div>
+            <h1>Chess Opening Mistakes Analyzer</h1>
+            <button id="config-btn" class="config-btn" onclick="toggleConfigMenu()">&#9881;</button>
+        </div>
+
+        <!-- Config Menu -->
+        <div id="config-menu" class="config-menu">
+            <h3>Settings</h3>
+            <div class="config-stats">
+                <div class="config-stat">
+                    <span class="config-stat-label">Username</span>
+                    <span class="config-stat-value" id="config-username">-</span>
+                </div>
+                <div class="config-stat">
+                    <span class="config-stat-label">Games</span>
+                    <span class="config-stat-value" id="config-games">0</span>
+                </div>
+                <div class="config-stat">
+                    <span class="config-stat-label">Mistakes</span>
+                    <span class="config-stat-value" id="config-mistakes">0</span>
+                </div>
+                <div class="config-stat">
+                    <span class="config-stat-label">Last fetch</span>
+                    <span class="config-stat-value" id="config-last-fetch">Never</span>
+                </div>
+                <div class="config-stat">
+                    <span class="config-stat-label">Last analysis</span>
+                    <span class="config-stat-value" id="config-last-analysis">Never</span>
+                </div>
+            </div>
+            <div class="config-actions">
+                <button class="config-action-btn" onclick="handleRefreshGames()">Refresh Games</button>
+                <button class="config-action-btn" onclick="handleChangeUsername()">Change Username</button>
+                <button class="config-action-btn danger" onclick="handleClearData()">Clear All Data</button>
+            </div>
+        </div>
+
+        <div class="stats-summary">
+            <div class="stat-item">
+                <div class="stat-value" id="total-games">-</div>
+                <div class="stat-label">Total Games</div>
+            </div>
+        </div>
+
+        <div class="container">
+            <!-- Main Table -->
+            <div class="table-container">
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>Search Sequence</label>
+                        <input type="text" id="filter-seq" placeholder="e.g. e4 e5 f4">
+                    </div>
+                    <div class="filter-group">
+                        <label>Opening</label>
+                        <input type="text" id="filter-opening" placeholder="e.g. Italian">
+                    </div>
+                    <div class="filter-group">
+                        <label>Color</label>
+                        <select id="filter-color">
+                            <option value="">All</option>
+                            <option value="white">White</option>
+                            <option value="black">Black</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Min # Games</label>
+                        <input type="number" id="filter-min-occ" placeholder="1" min="1" value="">
+                    </div>
+                    <div class="filter-group">
+                        <label>Max # Moves</label>
+                        <input type="number" id="filter-max-moves" min="1" max="14" value="10">
+                    </div>
+                    <div class="filter-group">
+                        <label>Impact</label>
+                        <select id="filter-impact">
+                            <option value="">All</option>
+                            <option value="medium">Medium (1-2)</option>
+                            <option value="high">High (2-3)</option>
+                            <option value="critical">Critical (3+)</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Opponent</label>
+                        <input type="text" id="filter-opponent" placeholder="Search opponent...">
+                    </div>
+                </div>
+
+                <table id="mistakes-table">
+                    <thead>
+                        <tr>
+                            <th data-sort="sequence">Sequence <span class="sort-icon">↕</span></th>
+                            <th data-sort="occurrences" class="sorted"># Games <span class="sort-icon">↓</span></th>
+                            <th data-sort="avg_eval_drop">Impact <span class="sort-icon">↕</span></th>
+                            <th data-sort="move_count"># Moves <span class="sort-icon">↕</span></th>
+                            <th data-sort="opening">Opening <span class="sort-icon">↕</span></th>
+                            <th data-sort="player_color">Color <span class="sort-icon">↕</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <tr><td colspan="6" class="loading">Loading data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Overlay -->
+            <div class="detail-overlay" id="detail-overlay"></div>
+
+            <!-- Detail Panel -->
+            <div class="detail-panel" id="detail-panel">
+                <div class="detail-header">
+                    <h2 id="detail-title">Mistake Details</h2>
+                    <button class="close-btn" onclick="closeDetail()">×</button>
+                </div>
+                <div class="detail-content">
+                    <div class="board-section">
+                        <div id="board"></div>
+                        <div class="controls">
+                            <button onclick="goToStart()">|&lt;</button>
+                            <button onclick="prevMove()">&lt; Prev</button>
+                            <button onclick="nextMove()">Next &gt;</button>
+                            <button onclick="goToEnd()">&gt;|</button>
+                            <button onclick="showBestMove()" id="best-move-btn" class="best-move-btn" disabled>Best</button>
+                        </div>
+                        <div class="move-display" id="move-display">
+                            Select a game to view on the board
+                        </div>
+                    </div>
+                    <div class="games-list">
+                        <h3>Games with this mistake (<span id="games-count">0</span>)</h3>
+                        <div id="games-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- External Libraries -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+    <!-- Application Modules (order matters - dependencies first) -->
+    <script src="static/js/utils.js"></script>
+    <script src="static/js/storageManager.js"></script>
+    <script src="static/js/gameFetcher.js"></script>
+    <script src="static/js/gameAnalyzer.js"></script>
+    <script src="static/js/progressUI.js"></script>
+    <script src="static/js/dataManager.js"></script>
+    <script src="static/js/tableRenderer.js"></script>
+    <script src="static/js/boardController.js"></script>
+    <script src="static/js/gameViewer.js"></script>
+    <script src="static/js/eventHandlers.js"></script>
+    <script src="static/js/setupScreen.js"></script>
+    <script src="static/js/configMenu.js"></script>
+    <script src="static/js/app.js"></script>
+</body>
+</html>

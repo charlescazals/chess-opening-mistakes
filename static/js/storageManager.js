@@ -1,0 +1,112 @@
+// Storage Manager - handles all localStorage operations
+
+const STORAGE_KEYS = {
+    USERNAME: 'chess_username',
+    GAMES: 'chess_games',
+    MISTAKES: 'chess_mistakes',
+    ANALYSIS_PROGRESS: 'chess_analysis_progress',
+    LAST_FETCH: 'chess_last_fetch',
+    LAST_ANALYSIS: 'chess_last_analysis'
+};
+
+function getUsername() {
+    return localStorage.getItem(STORAGE_KEYS.USERNAME);
+}
+
+function setUsername(username) {
+    localStorage.setItem(STORAGE_KEYS.USERNAME, username);
+}
+
+function getGames() {
+    const data = localStorage.getItem(STORAGE_KEYS.GAMES);
+    return data ? JSON.parse(data) : [];
+}
+
+function setGames(games) {
+    localStorage.setItem(STORAGE_KEYS.GAMES, JSON.stringify(games));
+    localStorage.setItem(STORAGE_KEYS.LAST_FETCH, Date.now().toString());
+}
+
+function getMistakes() {
+    const data = localStorage.getItem(STORAGE_KEYS.MISTAKES);
+    return data ? JSON.parse(data) : [];
+}
+
+function setMistakes(mistakes) {
+    localStorage.setItem(STORAGE_KEYS.MISTAKES, JSON.stringify(mistakes));
+    localStorage.setItem(STORAGE_KEYS.LAST_ANALYSIS, Date.now().toString());
+}
+
+function getAnalysisProgress() {
+    const data = localStorage.getItem(STORAGE_KEYS.ANALYSIS_PROGRESS);
+    return data ? JSON.parse(data) : [];
+}
+
+function setAnalysisProgress(processedUrls) {
+    localStorage.setItem(STORAGE_KEYS.ANALYSIS_PROGRESS, JSON.stringify(processedUrls));
+}
+
+function addToAnalysisProgress(gameUrl) {
+    const progress = getAnalysisProgress();
+    if (!progress.includes(gameUrl)) {
+        progress.push(gameUrl);
+        setAnalysisProgress(progress);
+    }
+}
+
+function getLastFetch() {
+    const timestamp = localStorage.getItem(STORAGE_KEYS.LAST_FETCH);
+    return timestamp ? parseInt(timestamp) : null;
+}
+
+function getLastAnalysis() {
+    const timestamp = localStorage.getItem(STORAGE_KEYS.LAST_ANALYSIS);
+    return timestamp ? parseInt(timestamp) : null;
+}
+
+function clearAllData() {
+    Object.values(STORAGE_KEYS).forEach(key => {
+        localStorage.removeItem(key);
+    });
+}
+
+function hasData() {
+    return getUsername() !== null && getMistakes().length > 0;
+}
+
+function hasGames() {
+    return getGames().length > 0;
+}
+
+function getDataStats() {
+    const games = getGames();
+    const mistakes = getMistakes();
+    const progress = getAnalysisProgress();
+    const lastFetch = getLastFetch();
+    const lastAnalysis = getLastAnalysis();
+
+    return {
+        username: getUsername(),
+        gameCount: games.length,
+        mistakeCount: mistakes.length,
+        analyzedCount: progress.length,
+        lastFetch: lastFetch ? new Date(lastFetch).toLocaleString() : 'Never',
+        lastAnalysis: lastAnalysis ? new Date(lastAnalysis).toLocaleString() : 'Never'
+    };
+}
+
+function getStorageUsage() {
+    let total = 0;
+    Object.values(STORAGE_KEYS).forEach(key => {
+        const item = localStorage.getItem(key);
+        if (item) {
+            total += item.length * 2; // UTF-16 = 2 bytes per char
+        }
+    });
+    return {
+        used: total,
+        usedMB: (total / (1024 * 1024)).toFixed(2),
+        limit: 5 * 1024 * 1024, // ~5MB typical limit
+        limitMB: 5
+    };
+}
