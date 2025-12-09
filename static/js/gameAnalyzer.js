@@ -1,6 +1,6 @@
 // Game Analyzer - analyzes games using Lichess Cloud API with local Stockfish WASM fallback
 
-const ANALYSIS_DEPTH = 12;  // Reduced for faster browser analysis
+const ANALYSIS_DEPTH = 18;  // Reduced for faster browser analysis
 const MOVES_TO_ANALYZE = 14;  // First 14 half-moves (7 per player)
 const MISTAKE_THRESHOLD = 100;  // Centipawns (1 pawn)
 
