@@ -15,6 +15,15 @@ function setupEventHandlers() {
     document.getElementById('filter-impact').addEventListener('change', applyFilters);
     document.getElementById('filter-opponent').addEventListener('input', applyFilters);
 
+    // Set max-moves to placeholder value on first interaction when empty
+    const maxMovesInput = document.getElementById('filter-max-moves');
+    maxMovesInput.addEventListener('focus', function() {
+        if (this.value === '') {
+            this.value = this.placeholder;
+            applyFilters();
+        }
+    });
+
     // Keyboard navigation
     document.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowLeft') prevMove();
