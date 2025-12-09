@@ -50,10 +50,16 @@ function groupMistakesBySequence(mistakes) {
 
 function loadDataFromStorage() {
     const mistakes = getMistakes();
+    const games = getGames();
 
     if (mistakes.length === 0) {
+        let message = 'No mistakes found. Set up your account to get started.';
+        if (games.length > 0) {
+            // We have games but no mistakes - analysis was likely interrupted
+            message = 'No mistakes analyzed yet. Use the settings menu (⚙) to refresh and re-analyze your games.';
+        }
         document.getElementById('table-body').innerHTML =
-            '<tr><td colspan="6" class="no-results">No mistakes found. Set up your account to get started.</td></tr>';
+            '<tr><td colspan="6" class="no-results">' + message + '</td></tr>';
         return;
     }
 

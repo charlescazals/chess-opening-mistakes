@@ -19,7 +19,14 @@ function setUsername(username) {
 
 function getGames() {
     const data = localStorage.getItem(STORAGE_KEYS.GAMES);
-    return data ? JSON.parse(data) : [];
+    if (!data) return [];
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        console.warn('Corrupted games data, clearing...');
+        localStorage.removeItem(STORAGE_KEYS.GAMES);
+        return [];
+    }
 }
 
 function setGames(games) {
@@ -29,7 +36,14 @@ function setGames(games) {
 
 function getMistakes() {
     const data = localStorage.getItem(STORAGE_KEYS.MISTAKES);
-    return data ? JSON.parse(data) : [];
+    if (!data) return [];
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        console.warn('Corrupted mistakes data, clearing...');
+        localStorage.removeItem(STORAGE_KEYS.MISTAKES);
+        return [];
+    }
 }
 
 function setMistakes(mistakes) {
@@ -39,7 +53,14 @@ function setMistakes(mistakes) {
 
 function getAnalysisProgress() {
     const data = localStorage.getItem(STORAGE_KEYS.ANALYSIS_PROGRESS);
-    return data ? JSON.parse(data) : [];
+    if (!data) return [];
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        console.warn('Corrupted analysis progress data, clearing...');
+        localStorage.removeItem(STORAGE_KEYS.ANALYSIS_PROGRESS);
+        return [];
+    }
 }
 
 function setAnalysisProgress(processedUrls) {
@@ -71,7 +92,9 @@ function clearAllData() {
 }
 
 function hasData() {
-    return getUsername() !== null && getMistakes().length > 0;
+    // Show main content if we have username and either games or mistakes
+    // This handles the case where analysis was interrupted mid-way
+    return getUsername() !== null && (getMistakes().length > 0 || getGames().length > 0);
 }
 
 function hasGames() {
