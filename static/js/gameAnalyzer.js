@@ -303,10 +303,8 @@ async function analyzeAllGames(onProgress) {
             // Update progress
             addToAnalysisProgress(gameData.url);
 
-            // Save progress periodically
-            if ((i + 1) % 5 === 0 || i === gamesToProcess.length - 1) {
-                setMistakes(allMistakes);
-            }
+            // Save after every game so cancel doesn't lose progress
+            setMistakes(allMistakes);
         }
 
         // Final save

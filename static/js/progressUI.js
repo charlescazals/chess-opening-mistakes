@@ -108,6 +108,8 @@ function handleProgressCancel() {
         cancelAnalysis();
     }
     hideProgress();
+    // Small delay to allow final save to complete, then refresh to display results
+    setTimeout(() => location.reload(), 200);
 }
 
 async function runWithProgress(title, asyncFn) {
