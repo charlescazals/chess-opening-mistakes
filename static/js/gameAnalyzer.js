@@ -1,4 +1,4 @@
-// Game Analyzer - analyzes games using Stockfish WASM (ported from analyze_games.py)
+// Game Analyzer - analyzes games using Lichess Cloud API with local Stockfish WASM fallback
 
 const ANALYSIS_DEPTH = 12;  // Reduced for faster browser analysis
 const MOVES_TO_ANALYZE = 14;  // First 14 half-moves (7 per player)
@@ -7,6 +7,18 @@ const MISTAKE_THRESHOLD = 100;  // Centipawns (1 pawn)
 let stockfish = null;
 let analysisAbortController = null;
 let isAnalyzing = false;
+
+// Lichess Cloud Eval state
+let lichessRateLimited = false;
+let lichessRateLimitResetTime = 0;
+const LICHESS_RATE_LIMIT_DURATION = 60000; // 1 minute cooldown after rate limit
+
+// Lichess API stats (per game)
+let lichessStats = { hits: 0, misses: 0, rateLimited: 0 };
+
+function resetLichessStats() {
+    lichessStats = { hits: 0, misses: 0, rateLimited: 0 };
+}
 
 function initStockfish() {
     return new Promise((resolve, reject) => {
@@ -52,7 +64,75 @@ function terminateStockfish() {
     }
 }
 
-function getEvaluation(fen) {
+// Lichess Cloud Evaluation API
+async function getLichessCloudEval(fen) {
+    // Check if we're rate limited
+    if (lichessRateLimited && Date.now() < lichessRateLimitResetTime) {
+        lichessStats.rateLimited++;
+        return null;
+    }
+
+    // Reset rate limit if cooldown passed
+    if (lichessRateLimited && Date.now() >= lichessRateLimitResetTime) {
+        lichessRateLimited = false;
+    }
+
+    try {
+        const encodedFen = encodeURIComponent(fen);
+        const response = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodedFen}&multiPv=1`);
+
+        if (response.status === 429) {
+            // Rate limited
+            lichessRateLimited = true;
+            lichessRateLimitResetTime = Date.now() + LICHESS_RATE_LIMIT_DURATION;
+            lichessStats.rateLimited++;
+            return null;
+        }
+
+        if (response.status === 404) {
+            // Position not in cloud database
+            lichessStats.misses++;
+            return null;
+        }
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const data = await response.json();
+
+        if (!data.pvs || data.pvs.length === 0) {
+            return null;
+        }
+
+        const pv = data.pvs[0];
+        let evalScore = null;
+
+        // Check for mate score
+        if (pv.mate !== undefined) {
+            evalScore = pv.mate > 0 ? 10000 - pv.mate * 100 : -10000 - pv.mate * 100;
+        } else if (pv.cp !== undefined) {
+            evalScore = pv.cp;
+        }
+
+        // Extract best move from PV (first move in the line)
+        let bestMove = null;
+        if (pv.moves) {
+            bestMove = pv.moves.split(' ')[0];
+        }
+
+        lichessStats.hits++;
+        return { eval: evalScore, bestMove: bestMove, source: 'lichess', depth: data.depth };
+
+    } catch (error) {
+        console.warn('Lichess API error:', error);
+        lichessStats.misses++;
+        return null;
+    }
+}
+
+// Local Stockfish WASM evaluation
+function getLocalEvaluation(fen) {
     return new Promise((resolve) => {
         if (!stockfish) {
             resolve({ eval: null, bestMove: null });
@@ -104,6 +184,18 @@ function getEvaluation(fen) {
     });
 }
 
+// Hybrid evaluation: Lichess cloud first, WASM fallback
+async function getEvaluation(fen) {
+    // Try Lichess cloud eval first (fast, high depth)
+    const lichessResult = await getLichessCloudEval(fen);
+    if (lichessResult) {
+        return lichessResult;
+    }
+
+    // Fall back to local Stockfish WASM
+    return await getLocalEvaluation(fen);
+}
+
 function extractResultFromPgn(pgn) {
     for (const line of pgn.split('\n')) {
         if (line.startsWith('[Result "')) {
@@ -143,6 +235,9 @@ function uciToSan(uciMove, chess) {
 }
 
 async function analyzeGame(gameData, onProgress) {
+    // Reset Lichess stats for this game
+    resetLichessStats();
+
     const pgn = gameData.pgn || '';
     const playerColor = gameData.player_color || 'white';
     const isWhite = playerColor === 'white';
@@ -238,6 +333,11 @@ async function analyzeGame(gameData, onProgress) {
             });
         }
     }
+
+    // Log Lichess API stats for this game
+    const total = lichessStats.hits + lichessStats.misses + lichessStats.rateLimited;
+    const hitRate = total > 0 ? Math.round((lichessStats.hits / total) * 100) : 0;
+    console.log(`[Lichess API] Game complete - Hits: ${lichessStats.hits}, Misses: ${lichessStats.misses}, Rate Limited: ${lichessStats.rateLimited} (${hitRate}% hit rate)`);
 
     return mistakes;
 }
