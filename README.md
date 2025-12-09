@@ -1,53 +1,40 @@
 # Chess Opening Mistakes Analyzer
 
-Analyze your Chess.com games to identify opening mistakes using Stockfish.
+Analyze your Chess.com games to identify recurring opening mistakes using Stockfish running directly in your browser.
 
-## Get Started
+## Features
 
-### 1. Install dependencies
+- Fetches your blitz and rapid games from Chess.com
+- Analyzes openings using Stockfish WASM (no installation required)
+- Identifies recurring mistakes across your games
+- Filter by opening, color, impact, and more
 
-Set up Python virtual environment:
+## Usage
+
+### Online
+
+Visit the hosted version (if deployed via GitHub Pages).
+
+### Local Development
+
+Serve the static files with any HTTP server:
+
 ```bash
-python3.13 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
+# Using Python
+python3 -m http.server 8000
+
+# Using Node.js
+npx serve
 ```
 
-Install Stockfish:
-- macOS: `brew install stockfish`
-- Linux: `sudo apt install stockfish`
-- Windows: Download from https://stockfishchess.org/download/
+Then open http://localhost:8000
 
-### 2. Fetch games
-```bash
-python fetch_games.py
-```
+## How It Works
 
-### 3. Analyze with Stockfish
-```bash
-python analyze_games.py
-```
-This can be interrupted and resumed - progress is saved automatically.
+1. Enter your Chess.com username
+2. The app fetches your recent games via the Chess.com API
+3. Stockfish WASM analyzes the first 14 half-moves of each game
+4. Mistakes (eval drops >= 1 pawn) are grouped by move sequence
+5. Browse and filter your recurring opening mistakes
 
-### 4. View statistics
-```bash
-python statistics.py
-```
-
-### 5. Launch web UI
-```bash
-python app.py
-```
-Open http://localhost:5001
-
-## Configuration
-
-Edit the username in `fetch_games.py` to analyze a different player's games.
-
-## Output Files
-
-- `data/games.json` - Raw game data from Chess.com
-- `data/analysis_progress.json` - Progress tracking for resumable analysis
-- `data/mistakes.json` - Detected opening mistakes
-- `data/statistics.json` - Aggregated statistics
+All data is stored locally in your browser (localStorage).
