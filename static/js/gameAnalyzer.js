@@ -1,6 +1,6 @@
 // Game Analyzer - analyzes games using Lichess Cloud API with local Stockfish WASM fallback
 
-const ANALYSIS_DEPTH = 18;  // Reduced for faster browser analysis
+const ANALYSIS_DEPTH = 15;  // Reduced for faster browser analysis
 const MOVES_TO_ANALYZE = 14;  // First 14 half-moves (7 per player)
 const MISTAKE_THRESHOLD = 100;  // Centipawns (1 pawn)
 
@@ -38,6 +38,16 @@ function initStockfish() {
                     initialized = true;
                     // Set options for better performance
                     stockfish.postMessage('setoption name Hash value 128');  // More hash = better performance
+
+                    // Enable multi-threading if SharedArrayBuffer is available (requires COOP/COEP headers)
+                    if (typeof SharedArrayBuffer !== 'undefined') {
+                        const threads = Math.min(navigator.hardwareConcurrency || 1, 4);
+                        stockfish.postMessage(`setoption name Threads value ${threads}`);
+                        console.log(`[Stockfish] Multi-threading enabled with ${threads} threads`);
+                    } else {
+                        console.log('[Stockfish] Running single-threaded (SharedArrayBuffer not available)');
+                    }
+
                     stockfish.postMessage('isready');
                 }
                 if (event.data === 'readyok' && initialized) {
