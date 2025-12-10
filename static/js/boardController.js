@@ -9,7 +9,7 @@ function initBoard() {
     game = new Chess();
     board = Chessboard('board', {
         position: 'start',
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        pieceTheme: 'static/img/chesspieces/wikipedia/{piece}.png'
     });
 }
 
