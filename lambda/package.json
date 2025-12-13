@@ -1,0 +1,12 @@
+{
+  "name": "chess-mistakes-analyzer-lambda",
+  "version": "1.0.0",
+  "description": "Lambda function for analyzing chess games with Stockfish",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.500.0",
+    "@aws-sdk/lib-dynamodb": "^3.500.0",
+    "chess.js": "0.12.1",
+    "uuid": "^9.0.0"
+  }
+}
