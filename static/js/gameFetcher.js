@@ -112,7 +112,7 @@ function extractGameData(game, username) {
     };
 }
 
-const MAX_GAMES = 25;
+const MAX_GAMES = 250;
 
 async function fetchAllGames(username, onProgress) {
     fetchAbortController = new AbortController();
