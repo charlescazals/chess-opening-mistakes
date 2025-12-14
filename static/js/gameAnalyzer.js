@@ -127,12 +127,18 @@ async function pollForResults(jobId, gamesToProcess, existingMistakes, onProgres
             const status = await response.json();
 
             if (onProgress) {
-                const opening = gamesToProcess[status.currentGame - 1]?.opening || 'Analyzing...';
-                const color = gamesToProcess[status.currentGame - 1]?.player_color || '';
+                let message = 'Starting analysis...';
+                const currentGame = gamesToProcess[status.currentGame - 1];
+
+                if (currentGame) {
+                    const opening = currentGame.opening || 'Unknown opening';
+                    const color = currentGame.player_color || '';
+                    message = color ? `${opening.substring(0, 30)}... (${color})` : `${opening.substring(0, 30)}...`;
+                }
 
                 onProgress({
                     stage: 'analyzing',
-                    message: `${opening.substring(0, 30)}... (${color})`,
+                    message,
                     current: status.currentGame,
                     total: status.totalGames,
                     mistakes: existingMistakes.length + status.mistakesFound
