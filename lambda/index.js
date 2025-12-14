@@ -804,56 +804,40 @@ async function handleStatus(jobId) {
     };
   }
 
-  // For in-progress jobs with batches, aggregate progress from all batches
-  if (job.totalBatches > 1) {
-    let totalProcessed = 0;
-    let totalMistakes = 0;
-    let completedBatches = 0;
+  // Aggregate progress from all batches
+  let totalProcessed = 0;
+  let totalMistakes = 0;
+  let completedBatches = 0;
 
-    // Fetch all batch statuses
-    for (let i = 0; i < job.totalBatches; i++) {
-      const batchId = `${jobId}#batch-${i}`;
-      try {
-        const batchResult = await docClient.send(new GetCommand({
-          TableName: JOBS_TABLE,
-          Key: { jobId: batchId }
-        }));
-        if (batchResult.Item) {
-          totalProcessed += batchResult.Item.gamesProcessed || 0;
-          totalMistakes += batchResult.Item.mistakesFound || 0;
-          if (batchResult.Item.status === 'completed') {
-            completedBatches++;
-          }
+  for (let i = 0; i < job.totalBatches; i++) {
+    const batchId = `${jobId}#batch-${i}`;
+    try {
+      const batchResult = await docClient.send(new GetCommand({
+        TableName: JOBS_TABLE,
+        Key: { jobId: batchId }
+      }));
+      if (batchResult.Item) {
+        totalProcessed += batchResult.Item.gamesProcessed || 0;
+        totalMistakes += batchResult.Item.mistakesFound || 0;
+        if (batchResult.Item.status === 'completed') {
+          completedBatches++;
         }
-      } catch (error) {
-        console.warn(`Error fetching batch ${i}:`, error);
       }
+    } catch (error) {
+      console.warn(`Error fetching batch ${i}:`, error);
     }
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        jobId: job.jobId,
-        status: job.status,
-        currentGame: totalProcessed,
-        totalGames: job.totalGames,
-        completedBatches,
-        totalBatches: job.totalBatches,
-        mistakesFound: totalMistakes
-      })
-    };
   }
 
-  // Single batch job (legacy)
   return {
     statusCode: 200,
     body: JSON.stringify({
       jobId: job.jobId,
       status: job.status,
-      currentGame: job.currentGame,
+      currentGame: totalProcessed,
       totalGames: job.totalGames,
-      mistakesFound: job.mistakesFound,
-      mistakes: job.status === 'completed' ? job.mistakes : undefined
+      completedBatches,
+      totalBatches: job.totalBatches,
+      mistakesFound: totalMistakes
     })
   };
 }
