@@ -1,17 +1,23 @@
 const { spawn } = require('child_process');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const { Chess } = require('chess.js');
 const { v4: uuidv4 } = require('uuid');
+
+const lambdaClient = new LambdaClient({});
 
 const ANALYSIS_DEPTH = 18;
 const MOVES_TO_ANALYZE = 14;
 const MISTAKE_THRESHOLD = 100;
 const STOCKFISH_PATH = '/usr/local/bin/stockfish';
+const BATCH_SIZE = 50; // Games per parallel Lambda invocation
+const MAX_PARALLEL_LAMBDAS = 20; // Maximum concurrent Lambda invocations
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const JOBS_TABLE = process.env.JOBS_TABLE_NAME;
+const CACHE_TABLE = process.env.CACHE_TABLE_NAME;
 
 // Stockfish process management
 class StockfishEngine {
@@ -271,8 +277,8 @@ async function updateJobProgress(jobId, current, total, mistakes, status = 'proc
   }));
 }
 
-async function createJob(jobId, totalGames) {
-  const ttl = Math.floor(Date.now() / 1000) + 3600;
+async function createJob(jobId, totalGames, totalBatches = 1) {
+  const ttl = Math.floor(Date.now() / 1000) + 7200; // 2 hours for long jobs
 
   await docClient.send(new PutCommand({
     TableName: JOBS_TABLE,
@@ -281,11 +287,128 @@ async function createJob(jobId, totalGames) {
       status: 'processing',
       currentGame: 0,
       totalGames,
+      totalBatches,
+      completedBatches: 0,
       mistakesFound: 0,
       mistakes: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ttl
+    }
+  }));
+}
+
+// Create a batch record for parallel processing
+async function createBatch(jobId, batchIndex, gamesCount) {
+  const ttl = Math.floor(Date.now() / 1000) + 7200;
+  const batchId = `${jobId}#batch-${batchIndex}`;
+
+  await docClient.send(new PutCommand({
+    TableName: JOBS_TABLE,
+    Item: {
+      jobId: batchId,
+      parentJobId: jobId,
+      batchIndex,
+      status: 'processing',
+      gamesProcessed: 0,
+      totalGames: gamesCount,
+      mistakesFound: 0,
+      mistakes: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ttl
+    }
+  }));
+}
+
+// Update batch progress
+async function updateBatchProgress(jobId, batchIndex, gamesProcessed, mistakes) {
+  const batchId = `${jobId}#batch-${batchIndex}`;
+  const ttl = Math.floor(Date.now() / 1000) + 7200;
+
+  await docClient.send(new UpdateCommand({
+    TableName: JOBS_TABLE,
+    Key: { jobId: batchId },
+    UpdateExpression: 'SET gamesProcessed = :processed, mistakesFound = :count, updatedAt = :updatedAt, #ttl = :ttl',
+    ExpressionAttributeNames: { '#ttl': 'ttl' },
+    ExpressionAttributeValues: {
+      ':processed': gamesProcessed,
+      ':count': mistakes,
+      ':updatedAt': new Date().toISOString(),
+      ':ttl': ttl
+    }
+  }));
+}
+
+// Complete a batch and update parent job
+async function completeBatch(jobId, batchIndex, mistakes) {
+  const batchId = `${jobId}#batch-${batchIndex}`;
+  const ttl = Math.floor(Date.now() / 1000) + 7200;
+
+  // Update batch as completed
+  await docClient.send(new UpdateCommand({
+    TableName: JOBS_TABLE,
+    Key: { jobId: batchId },
+    UpdateExpression: 'SET #status = :status, mistakes = :mistakes, mistakesFound = :count, updatedAt = :updatedAt, #ttl = :ttl',
+    ExpressionAttributeNames: { '#status': 'status', '#ttl': 'ttl' },
+    ExpressionAttributeValues: {
+      ':status': 'completed',
+      ':mistakes': mistakes,
+      ':count': mistakes.length,
+      ':updatedAt': new Date().toISOString(),
+      ':ttl': ttl
+    }
+  }));
+
+  // Atomically increment completedBatches on parent job
+  const result = await docClient.send(new UpdateCommand({
+    TableName: JOBS_TABLE,
+    Key: { jobId },
+    UpdateExpression: 'SET completedBatches = completedBatches + :one, updatedAt = :updatedAt',
+    ExpressionAttributeValues: {
+      ':one': 1,
+      ':updatedAt': new Date().toISOString()
+    },
+    ReturnValues: 'ALL_NEW'
+  }));
+
+  // Check if all batches are complete
+  const job = result.Attributes;
+  if (job.completedBatches >= job.totalBatches) {
+    // Aggregate all batch results
+    await aggregateJobResults(jobId, job.totalBatches);
+  }
+}
+
+// Aggregate results from all batches into the main job
+async function aggregateJobResults(jobId, totalBatches) {
+  const allMistakes = [];
+
+  // Fetch all batch results
+  for (let i = 0; i < totalBatches; i++) {
+    const batchId = `${jobId}#batch-${i}`;
+    const result = await docClient.send(new GetCommand({
+      TableName: JOBS_TABLE,
+      Key: { jobId: batchId }
+    }));
+    if (result.Item && result.Item.mistakes) {
+      allMistakes.push(...result.Item.mistakes);
+    }
+  }
+
+  // Update main job as completed
+  const ttl = Math.floor(Date.now() / 1000) + 7200;
+  await docClient.send(new UpdateCommand({
+    TableName: JOBS_TABLE,
+    Key: { jobId },
+    UpdateExpression: 'SET #status = :status, mistakes = :mistakes, mistakesFound = :count, updatedAt = :updatedAt, #ttl = :ttl',
+    ExpressionAttributeNames: { '#status': 'status', '#ttl': 'ttl' },
+    ExpressionAttributeValues: {
+      ':status': 'completed',
+      ':mistakes': allMistakes,
+      ':count': allMistakes.length,
+      ':updatedAt': new Date().toISOString(),
+      ':ttl': ttl
     }
   }));
 }
@@ -319,7 +442,234 @@ async function getJob(jobId) {
   return result.Item;
 }
 
-async function handleAnalyze(body) {
+// Cache functions for persistent storage of analyzed games
+async function getCachedAnalysis(gameUrl) {
+  if (!CACHE_TABLE) return null;
+
+  try {
+    const result = await docClient.send(new GetCommand({
+      TableName: CACHE_TABLE,
+      Key: { gameUrl }
+    }));
+    return result.Item;
+  } catch (error) {
+    console.warn('Cache read error:', error);
+    return null;
+  }
+}
+
+async function cacheAnalysis(gameUrl, mistakes, gameMetadata) {
+  if (!CACHE_TABLE) return;
+
+  try {
+    await docClient.send(new PutCommand({
+      TableName: CACHE_TABLE,
+      Item: {
+        gameUrl,
+        mistakes,
+        analyzedAt: new Date().toISOString(),
+        // Store metadata for debugging/auditing
+        timeClass: gameMetadata.time_class || '',
+        opening: gameMetadata.opening || '',
+        eco: gameMetadata.eco || '',
+      }
+    }));
+  } catch (error) {
+    console.warn('Cache write error:', error);
+  }
+}
+
+// Process games - the actual analysis work
+async function processGames(jobId, games) {
+  // Separate games into cached and uncached
+  const allMistakes = [];
+  const gamesToAnalyze = [];
+
+  // Check cache for each game
+  // Cache key includes player_color since analysis is player-specific
+  for (const gameData of games) {
+    const gameUrl = gameData.url;
+    const playerColor = gameData.player_color || 'white';
+    const cacheKey = gameUrl ? `${gameUrl}:${playerColor}` : null;
+
+    if (cacheKey) {
+      const cached = await getCachedAnalysis(cacheKey);
+      if (cached && cached.mistakes) {
+        console.log(`Cache hit for game: ${cacheKey}`);
+        allMistakes.push(...cached.mistakes);
+      } else {
+        gamesToAnalyze.push(gameData);
+      }
+    } else {
+      gamesToAnalyze.push(gameData);
+    }
+  }
+
+  // If all games were cached, save and return
+  if (gamesToAnalyze.length === 0) {
+    await saveJobResults(jobId, allMistakes);
+    return { allMistakes, cached: true };
+  }
+
+  // Process uncached games with Stockfish
+  const engine = new StockfishEngine();
+  await engine.init();
+
+  try {
+    for (let i = 0; i < gamesToAnalyze.length; i++) {
+      const gameData = gamesToAnalyze[i];
+
+      try {
+        const mistakes = await analyzeGame(engine, gameData);
+        const gameMistakes = mistakes || [];
+
+        // Cache the analysis result (even if no mistakes found)
+        // Cache key includes player_color since analysis is player-specific
+        if (gameData.url) {
+          const playerColor = gameData.player_color || 'white';
+          const cacheKey = `${gameData.url}:${playerColor}`;
+          await cacheAnalysis(cacheKey, gameMistakes, gameData);
+          console.log(`Cached analysis for game: ${cacheKey}`);
+        }
+
+        if (gameMistakes.length > 0) {
+          allMistakes.push(...gameMistakes);
+        }
+      } catch (error) {
+        console.warn('Error analyzing game:', error);
+      }
+
+      await updateJobProgress(jobId, i + 1, gamesToAnalyze.length, allMistakes.length);
+    }
+
+    await saveJobResults(jobId, allMistakes);
+    return { allMistakes, cached: false };
+  } finally {
+    engine.quit();
+  }
+}
+
+// Handle batch processing invocation (called by Lambda self-invoke for parallel processing)
+async function handleBatchProcessing(body) {
+  const { jobId, batchIndex, games } = body;
+  console.log(`Batch ${batchIndex} processing started for job ${jobId} with ${games.length} games`);
+
+  try {
+    // Process games in this batch
+    const allMistakes = [];
+    const gamesToAnalyze = [];
+
+    // Check cache for each game
+    for (const gameData of games) {
+      const gameUrl = gameData.url;
+      const playerColor = gameData.player_color || 'white';
+      const cacheKey = gameUrl ? `${gameUrl}:${playerColor}` : null;
+
+      if (cacheKey) {
+        const cached = await getCachedAnalysis(cacheKey);
+        if (cached && cached.mistakes) {
+          console.log(`Cache hit for game: ${cacheKey}`);
+          allMistakes.push(...cached.mistakes);
+        } else {
+          gamesToAnalyze.push(gameData);
+        }
+      } else {
+        gamesToAnalyze.push(gameData);
+      }
+    }
+
+    // Process uncached games with Stockfish
+    if (gamesToAnalyze.length > 0) {
+      const engine = new StockfishEngine();
+      await engine.init();
+
+      try {
+        for (let i = 0; i < gamesToAnalyze.length; i++) {
+          const gameData = gamesToAnalyze[i];
+
+          try {
+            const mistakes = await analyzeGame(engine, gameData);
+            const gameMistakes = mistakes || [];
+
+            // Cache the analysis result
+            if (gameData.url) {
+              const playerColor = gameData.player_color || 'white';
+              const cacheKey = `${gameData.url}:${playerColor}`;
+              await cacheAnalysis(cacheKey, gameMistakes, gameData);
+              console.log(`Cached analysis for game: ${cacheKey}`);
+            }
+
+            if (gameMistakes.length > 0) {
+              allMistakes.push(...gameMistakes);
+            }
+          } catch (error) {
+            console.warn('Error analyzing game:', error);
+          }
+
+          // Update batch progress
+          await updateBatchProgress(jobId, batchIndex, i + 1, allMistakes.length);
+        }
+      } finally {
+        engine.quit();
+      }
+    }
+
+    // Complete this batch and trigger aggregation if all batches done
+    await completeBatch(jobId, batchIndex, allMistakes);
+    console.log(`Batch ${batchIndex} completed for job ${jobId} with ${allMistakes.length} mistakes`);
+
+  } catch (error) {
+    console.error(`Batch ${batchIndex} failed for job ${jobId}:`, error);
+    // Mark batch as error
+    const batchId = `${jobId}#batch-${batchIndex}`;
+    await docClient.send(new UpdateCommand({
+      TableName: JOBS_TABLE,
+      Key: { jobId: batchId },
+      UpdateExpression: 'SET #status = :status, errorMessage = :error, updatedAt = :updatedAt',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: {
+        ':status': 'error',
+        ':error': error.message,
+        ':updatedAt': new Date().toISOString()
+      }
+    }));
+  }
+}
+
+// Handle single-batch async processing (for backward compatibility with small jobs)
+async function handleAsyncProcessing(body) {
+  const { jobId, games } = body;
+  console.log(`Async processing started for job ${jobId} with ${games.length} games`);
+
+  try {
+    await processGames(jobId, games);
+    console.log(`Async processing completed for job ${jobId}`);
+  } catch (error) {
+    console.error(`Async processing failed for job ${jobId}:`, error);
+    await docClient.send(new UpdateCommand({
+      TableName: JOBS_TABLE,
+      Key: { jobId },
+      UpdateExpression: 'SET #status = :status, errorMessage = :error, updatedAt = :updatedAt',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: {
+        ':status': 'error',
+        ':error': error.message,
+        ':updatedAt': new Date().toISOString()
+      }
+    }));
+  }
+}
+
+// Split array into batches
+function splitIntoBatches(array, batchSize) {
+  const batches = [];
+  for (let i = 0; i < array.length; i += batchSize) {
+    batches.push(array.slice(i, i + batchSize));
+  }
+  return batches;
+}
+
+async function handleAnalyze(body, functionName) {
   const { games } = body;
 
   if (!games || !Array.isArray(games) || games.length === 0) {
@@ -329,45 +679,94 @@ async function handleAnalyze(body) {
     };
   }
 
-  const jobId = uuidv4();
-  await createJob(jobId, games.length);
+  // Quick check: are all games already cached?
+  let allCached = true;
+  const cachedMistakes = [];
 
-  // Process games synchronously within this Lambda invocation
-  const engine = new StockfishEngine();
-  await engine.init();
+  for (const gameData of games) {
+    const gameUrl = gameData.url;
+    const playerColor = gameData.player_color || 'white';
+    const cacheKey = gameUrl ? `${gameUrl}:${playerColor}` : null;
 
-  const allMistakes = [];
-
-  try {
-    for (let i = 0; i < games.length; i++) {
-      const gameData = games[i];
-
-      try {
-        const mistakes = await analyzeGame(engine, gameData);
-        if (mistakes && mistakes.length > 0) {
-          allMistakes.push(...mistakes);
-        }
-      } catch (error) {
-        console.warn('Error analyzing game:', error);
+    if (cacheKey) {
+      const cached = await getCachedAnalysis(cacheKey);
+      if (cached && cached.mistakes) {
+        cachedMistakes.push(...cached.mistakes);
+      } else {
+        allCached = false;
+        break; // No need to check more, we'll need async processing
       }
-
-      await updateJobProgress(jobId, i + 1, games.length, allMistakes.length);
+    } else {
+      allCached = false;
+      break;
     }
+  }
 
-    await saveJobResults(jobId, allMistakes);
-
+  // If all games were cached, return immediately
+  if (allCached) {
+    const jobId = uuidv4();
+    await createJob(jobId, games.length, 1);
+    await saveJobResults(jobId, cachedMistakes);
     return {
       statusCode: 200,
       body: JSON.stringify({
         jobId,
         status: 'completed',
-        mistakesFound: allMistakes.length,
-        mistakes: allMistakes
+        mistakesFound: cachedMistakes.length,
+        mistakes: cachedMistakes,
+        cached: true
       })
     };
-  } finally {
-    engine.quit();
   }
+
+  // Split games into batches for parallel processing
+  const batches = splitIntoBatches(games, BATCH_SIZE);
+
+  // If we have more batches than max parallel, redistribute
+  let finalBatches = batches;
+  if (batches.length > MAX_PARALLEL_LAMBDAS) {
+    // Redistribute games evenly across max parallel lambdas
+    const gamesPerLambda = Math.ceil(games.length / MAX_PARALLEL_LAMBDAS);
+    finalBatches = splitIntoBatches(games, gamesPerLambda);
+  }
+
+  const jobId = uuidv4();
+  await createJob(jobId, games.length, finalBatches.length);
+
+  console.log(`Invoking ${finalBatches.length} parallel workers for job ${jobId} (${games.length} games)`);
+
+  // Create batch records and invoke workers in parallel
+  const invocations = finalBatches.map(async (batch, index) => {
+    // Create batch record
+    await createBatch(jobId, index, batch.length);
+
+    // Invoke worker Lambda
+    await lambdaClient.send(new InvokeCommand({
+      FunctionName: functionName,
+      InvocationType: 'Event', // Async invocation
+      Payload: JSON.stringify({
+        batchProcessing: true,
+        jobId,
+        batchIndex: index,
+        games: batch
+      })
+    }));
+
+    console.log(`Invoked batch ${index} with ${batch.length} games`);
+  });
+
+  await Promise.all(invocations);
+
+  // Return immediately with job ID - client will poll /status
+  return {
+    statusCode: 202,
+    body: JSON.stringify({
+      jobId,
+      status: 'processing',
+      totalBatches: finalBatches.length,
+      message: `Analysis started with ${finalBatches.length} parallel workers. Poll /api/status/{jobId} for progress.`
+    })
+  };
 }
 
 async function handleStatus(jobId) {
@@ -380,6 +779,64 @@ async function handleStatus(jobId) {
     };
   }
 
+  // If job is completed, return final results
+  if (job.status === 'completed') {
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        jobId: job.jobId,
+        status: 'completed',
+        currentGame: job.totalGames,
+        totalGames: job.totalGames,
+        completedBatches: job.totalBatches,
+        totalBatches: job.totalBatches,
+        mistakesFound: job.mistakesFound,
+        mistakes: job.mistakes
+      })
+    };
+  }
+
+  // For in-progress jobs with batches, aggregate progress from all batches
+  if (job.totalBatches > 1) {
+    let totalProcessed = 0;
+    let totalMistakes = 0;
+    let completedBatches = 0;
+
+    // Fetch all batch statuses
+    for (let i = 0; i < job.totalBatches; i++) {
+      const batchId = `${jobId}#batch-${i}`;
+      try {
+        const batchResult = await docClient.send(new GetCommand({
+          TableName: JOBS_TABLE,
+          Key: { jobId: batchId }
+        }));
+        if (batchResult.Item) {
+          totalProcessed += batchResult.Item.gamesProcessed || 0;
+          totalMistakes += batchResult.Item.mistakesFound || 0;
+          if (batchResult.Item.status === 'completed') {
+            completedBatches++;
+          }
+        }
+      } catch (error) {
+        console.warn(`Error fetching batch ${i}:`, error);
+      }
+    }
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        jobId: job.jobId,
+        status: job.status,
+        currentGame: totalProcessed,
+        totalGames: job.totalGames,
+        completedBatches,
+        totalBatches: job.totalBatches,
+        mistakesFound: totalMistakes
+      })
+    };
+  }
+
+  // Single batch job (legacy)
   return {
     statusCode: 200,
     body: JSON.stringify({
@@ -393,7 +850,21 @@ async function handleStatus(jobId) {
   };
 }
 
-exports.handler = async (event) => {
+exports.handler = async (event, context) => {
+  // Handle batch processing invocation (parallel worker)
+  if (event.batchProcessing) {
+    console.log(`Batch processing invocation received for batch ${event.batchIndex}`);
+    await handleBatchProcessing(event);
+    return; // No response needed for async invocation
+  }
+
+  // Handle single-job async processing (legacy, for small jobs)
+  if (event.asyncProcessing) {
+    console.log('Async processing invocation received');
+    await handleAsyncProcessing(event);
+    return; // No response needed for async invocation
+  }
+
   console.log('Event:', JSON.stringify(event, null, 2));
 
   const headers = {
@@ -415,7 +886,7 @@ exports.handler = async (event) => {
     // POST /api/analyze
     if (method === 'POST' && path.includes('/analyze')) {
       const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-      const result = await handleAnalyze(body);
+      const result = await handleAnalyze(body, context.functionName);
       return { ...result, headers };
     }
 

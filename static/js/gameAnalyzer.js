@@ -57,7 +57,7 @@ async function analyzeAllGames(onProgress) {
         const result = await response.json();
         currentJobId = result.jobId;
 
-        // If completed immediately (synchronous response)
+        // If completed immediately (all cached)
         if (result.status === 'completed') {
             const newMistakes = result.mistakes || [];
             allMistakes = [...allMistakes, ...newMistakes];
@@ -78,6 +78,17 @@ async function analyzeAllGames(onProgress) {
             }
 
             return allMistakes;
+        }
+
+        // Async processing started - show message and start polling
+        if (onProgress) {
+            onProgress({
+                stage: 'analyzing',
+                message: 'Analysis started, processing games...',
+                current: 0,
+                total: gamesToProcess.length,
+                mistakes: allMistakes.length
+            });
         }
 
         // Poll for progress

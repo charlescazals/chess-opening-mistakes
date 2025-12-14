@@ -29,6 +29,16 @@ export class ChessMistakesStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // DynamoDB table for caching analyzed games (persistent storage)
+    // Key format: "gameUrl:playerColor" (e.g., "https://chess.com/game/123:white")
+    // Player-specific because analysis only evaluates that player's moves
+    const cacheTable = new dynamodb.Table(this, 'AnalysisCacheTable', {
+      tableName: 'chess-mistakes-cache',
+      partitionKey: { name: 'gameUrl', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN, // Keep cache data across deployments
+    });
+
     // Lambda function for game analysis using Docker container with Stockfish
     const analysisLambda = new lambda.DockerImageFunction(this, 'AnalysisFunction', {
       functionName: 'chess-mistakes-analyzer',
@@ -37,12 +47,21 @@ export class ChessMistakesStack extends cdk.Stack {
       timeout: cdk.Duration.minutes(15),
       environment: {
         JOBS_TABLE_NAME: jobsTable.tableName,
+        CACHE_TABLE_NAME: cacheTable.tableName,
       },
       architecture: lambda.Architecture.X86_64,
     });
 
-    // Grant Lambda access to DynamoDB
+    // Grant Lambda access to DynamoDB tables
     jobsTable.grantReadWriteData(analysisLambda);
+    cacheTable.grantReadWriteData(analysisLambda);
+
+    // Grant Lambda permission to invoke itself (for async processing)
+    // Using addToRolePolicy to avoid circular dependency
+    analysisLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: [`arn:aws:lambda:${this.region}:${this.account}:function:chess-mistakes-analyzer`],
+    }));
 
     // API Gateway REST API
     const api = new apigateway.RestApi(this, 'AnalysisApi', {
