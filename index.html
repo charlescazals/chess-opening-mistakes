@@ -42,11 +42,11 @@
                     <span class="config-stat-value" id="config-username">-</span>
                 </div>
                 <div class="config-stat">
-                    <span class="config-stat-label">Games</span>
+                    <span class="config-stat-label">Games Analyzed</span>
                     <span class="config-stat-value" id="config-games">0</span>
                 </div>
                 <div class="config-stat">
-                    <span class="config-stat-label">Mistakes</span>
+                    <span class="config-stat-label">Mistakes Found</span>
                     <span class="config-stat-value" id="config-mistakes">0</span>
                 </div>
                 <div class="config-stat">
@@ -59,7 +59,7 @@
                 </div>
             </div>
             <div class="config-actions">
-                <button class="config-action-btn" onclick="handleRefreshGames()">Fetch Latest Games</button>
+                <button class="config-action-btn" onclick="handleRefreshGames()">Analyze Latest Games</button>
                 <button class="config-action-btn" onclick="handleChangeUsername()">Change Username</button>
                 <button class="config-action-btn danger" onclick="handleClearData()">Clear All Data</button>
             </div>
@@ -67,8 +67,8 @@
 
         <div class="stats-summary">
             <div class="stat-item">
-                <div class="stat-value" id="total-games">-</div>
-                <div class="stat-label">Total Games</div>
+                <div class="stat-value" id="total-mistakes">-</div>
+                <div class="stat-label">Total Mistakes</div>
             </div>
         </div>
 

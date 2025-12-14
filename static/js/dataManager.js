@@ -76,7 +76,7 @@ function loadData() {
 
 function updateStats() {
     const totalGames = filteredData.reduce((sum, s) => sum + s.occurrences, 0);
-    document.getElementById('total-games').textContent = totalGames;
+    document.getElementById('total-mistakes').textContent = totalGames;
 }
 
 function applyFilters() {
