@@ -117,7 +117,15 @@ class StockfishEngine {
         }
 
         if (line.startsWith('bestmove')) {
-          resolve({ eval: evalScore, bestMove: bestMove, depth: currentDepth });
+          // CRITICAL: Normalize eval to White's perspective
+          // Stockfish returns eval from side-to-move's perspective
+          // FEN format: "position w/b ..." - second field is side to move
+          const sideToMove = fen.split(' ')[1];
+          const normalizedEval = (sideToMove === 'b' && evalScore !== null)
+            ? -evalScore
+            : evalScore;
+
+          resolve({ eval: normalizedEval, bestMove: bestMove, depth: currentDepth });
         }
       };
 
