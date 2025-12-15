@@ -268,6 +268,13 @@ async function fetchUserData(username) {
             throw new Error(`API error: ${response.status}`);
         }
 
+        // Verify response is JSON before parsing
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            console.warn('User data endpoint returned non-JSON response');
+            return null;
+        }
+
         return await response.json();
     } catch (error) {
         console.warn('Error fetching user data:', error);
