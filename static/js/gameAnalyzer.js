@@ -27,6 +27,13 @@ async function analyzeAllGames(onProgress) {
 
         if (gamesToProcess.length === 0) {
             if (onProgress) onProgress({ stage: 'complete', message: 'All games already analyzed!' });
+
+            // Ensure userdata is saved to cloud even when all games were already analyzed
+            const username = getUsername();
+            if (username && allMistakes.length > 0) {
+                await saveUserDataToCloud(username, allMistakes, games);
+            }
+
             return allMistakes;
         }
 
@@ -97,9 +104,16 @@ async function analyzeAllGames(onProgress) {
     } catch (error) {
         if (error.name === 'AbortError') {
             console.log('Analysis cancelled');
+            // Use partial results if available
+            const partialMistakes = error.partialMistakes || getMistakes();
             if (onProgress) {
-                onProgress({ stage: 'cancelled', message: 'Analysis cancelled' });
+                onProgress({
+                    stage: 'cancelled',
+                    message: `Analysis cancelled. Saved ${error.partialMistakes ? error.partialMistakes.length : 0} partial results.`,
+                    mistakes: partialMistakes.length
+                });
             }
+            return partialMistakes;
         } else {
             console.error('Analysis error:', error);
             if (onProgress) {
@@ -176,6 +190,12 @@ async function pollForResults(jobId, gamesToProcess, existingMistakes, onProgres
 
         } catch (error) {
             if (error.name === 'AbortError') {
+                // On cancel, fetch partial results before throwing
+                const partialResults = await fetchPartialResults(jobId, existingMistakes);
+                if (partialResults.newMistakes > 0) {
+                    setMistakes(partialResults.allMistakes);
+                }
+                error.partialMistakes = partialResults.allMistakes;
                 throw error;
             }
             console.warn('Poll error:', error);
@@ -184,7 +204,33 @@ async function pollForResults(jobId, gamesToProcess, existingMistakes, onProgres
         }
     }
 
-    return existingMistakes;
+    // Also fetch partial results when loop exits normally (isAnalyzing set to false)
+    const partialResults = await fetchPartialResults(jobId, existingMistakes);
+    if (partialResults.newMistakes > 0) {
+        setMistakes(partialResults.allMistakes);
+    }
+    return partialResults.allMistakes;
+}
+
+// Fetch partial results from server (for cancel/error scenarios)
+async function fetchPartialResults(jobId, existingMistakes) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/status/${jobId}`);
+        if (response.ok) {
+            const status = await response.json();
+            const partialMistakes = status.mistakes || [];
+            if (partialMistakes.length > 0) {
+                console.log(`Fetched ${partialMistakes.length} partial mistakes from cancelled job`);
+                return {
+                    allMistakes: [...existingMistakes, ...partialMistakes],
+                    newMistakes: partialMistakes.length
+                };
+            }
+        }
+    } catch (e) {
+        console.warn('Could not fetch partial results:', e);
+    }
+    return { allMistakes: existingMistakes, newMistakes: 0 };
 }
 
 function cancelAnalysis() {

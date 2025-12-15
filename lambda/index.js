@@ -1,6 +1,6 @@
 const { spawn } = require('child_process');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, BatchGetCommand } = require('@aws-sdk/lib-dynamodb');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const { Chess } = require('chess.js');
 const { v4: uuidv4 } = require('uuid');
@@ -11,8 +11,8 @@ const ANALYSIS_DEPTH = 18;
 const MOVES_TO_ANALYZE = 14;
 const MISTAKE_THRESHOLD = 100;
 const STOCKFISH_PATH = '/usr/local/bin/stockfish';
-const BATCH_SIZE = 10; // Games per parallel Lambda invocation
-const MAX_PARALLEL_LAMBDAS = 100; // Maximum concurrent Lambda invocations
+const BATCH_SIZE = 20; // Games per parallel Lambda invocation
+const MAX_PARALLEL_LAMBDAS = 50; // Maximum concurrent Lambda invocations
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -842,27 +842,43 @@ async function handleStatus(jobId) {
     };
   }
 
-  // Aggregate progress from all batches
+  // Aggregate progress from all batches using BatchGetItem (max 100 items per call)
   let totalProcessed = 0;
   let totalMistakes = 0;
   let completedBatches = 0;
+  const partialMistakes = []; // Collect mistakes from completed batches
 
+  const batchKeys = [];
   for (let i = 0; i < job.totalBatches; i++) {
-    const batchId = `${jobId}#batch-${i}`;
+    batchKeys.push({ jobId: `${jobId}#batch-${i}` });
+  }
+
+  // BatchGetItem supports up to 100 keys per request
+  for (let i = 0; i < batchKeys.length; i += 100) {
+    const chunk = batchKeys.slice(i, i + 100);
     try {
-      const batchResult = await docClient.send(new GetCommand({
-        TableName: JOBS_TABLE,
-        Key: { jobId: batchId }
+      const result = await docClient.send(new BatchGetCommand({
+        RequestItems: {
+          [JOBS_TABLE]: {
+            Keys: chunk
+          }
+        }
       }));
-      if (batchResult.Item) {
-        totalProcessed += batchResult.Item.gamesProcessed || 0;
-        totalMistakes += batchResult.Item.mistakesFound || 0;
-        if (batchResult.Item.status === 'completed') {
+
+      const items = result.Responses?.[JOBS_TABLE] || [];
+      for (const item of items) {
+        totalProcessed += item.gamesProcessed || 0;
+        totalMistakes += item.mistakesFound || 0;
+        if (item.status === 'completed') {
           completedBatches++;
+          // Collect mistakes from completed batches for partial results
+          if (item.mistakes && Array.isArray(item.mistakes)) {
+            partialMistakes.push(...item.mistakes);
+          }
         }
       }
     } catch (error) {
-      console.warn(`Error fetching batch ${i}:`, error);
+      console.warn(`Error fetching batch chunk:`, error);
     }
   }
 
@@ -875,7 +891,8 @@ async function handleStatus(jobId) {
       totalGames: job.totalGames,
       completedBatches,
       totalBatches: job.totalBatches,
-      mistakesFound: totalMistakes
+      mistakesFound: totalMistakes,
+      mistakes: partialMistakes // Include partial mistakes for cancel/resume scenarios
     })
   };
 }
