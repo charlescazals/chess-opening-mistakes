@@ -112,7 +112,8 @@ function extractGameData(game, username) {
     };
 }
 
-const MAX_GAMES = 1000;
+const MAX_GAMES = 2000;
+const MAX_YEARS_BACK = 5;
 
 async function fetchAllGames(username, onProgress) {
     fetchAbortController = new AbortController();
@@ -129,6 +130,11 @@ async function fetchAllGames(username, onProgress) {
         // Sort archives most recent first
         const sortedArchives = [...archives].sort().reverse();
 
+        // Calculate the cutoff date (5 years ago)
+        const now = new Date();
+        const cutoffYear = now.getFullYear() - MAX_YEARS_BACK;
+        const cutoffMonth = now.getMonth() + 1; // 1-indexed
+
         const allGames = [];
 
         for (let i = 0; i < sortedArchives.length; i++) {
@@ -140,12 +146,31 @@ async function fetchAllGames(username, onProgress) {
             const archiveUrl = sortedArchives[i];
             const month = archiveUrl.split('/').slice(-2).join('/');
 
+            // Parse year/month from archive URL (format: .../YYYY/MM)
+            const parts = archiveUrl.split('/');
+            const archiveYear = parseInt(parts[parts.length - 2], 10);
+            const archiveMonth = parseInt(parts[parts.length - 1], 10);
+
+            // Stop if this archive is older than 5 years
+            if (archiveYear < cutoffYear || (archiveYear === cutoffYear && archiveMonth < cutoffMonth)) {
+                if (onProgress) {
+                    onProgress({
+                        stage: 'complete',
+                        message: `Found ${allGames.length} games (reached 5-year limit)`,
+                        current: allGames.length,
+                        total: MAX_GAMES,
+                        gamesFound: allGames.length
+                    });
+                }
+                break;
+            }
+
             if (onProgress) {
                 onProgress({
                     stage: 'fetching',
                     message: `Fetching ${month}...`,
-                    current: i + 1,
-                    total: sortedArchives.length,
+                    current: allGames.length,
+                    total: MAX_GAMES,
                     gamesFound: allGames.length
                 });
             }
@@ -175,6 +200,8 @@ async function fetchAllGames(username, onProgress) {
             onProgress({
                 stage: 'complete',
                 message: `Found ${allGames.length} games`,
+                current: allGames.length,
+                total: MAX_GAMES,
                 gamesFound: allGames.length
             });
         }
