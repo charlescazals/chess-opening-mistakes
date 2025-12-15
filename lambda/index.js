@@ -18,6 +18,7 @@ const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const JOBS_TABLE = process.env.JOBS_TABLE_NAME;
 const CACHE_TABLE = process.env.CACHE_TABLE_NAME;
+const USERDATA_TABLE = process.env.USERDATA_TABLE_NAME;
 
 // Stockfish process management
 class StockfishEngine {
@@ -487,6 +488,43 @@ async function cacheAnalysis(gameUrl, mistakes, gameMetadata) {
   }
 }
 
+// User data functions for storing/retrieving user's analyzed data
+async function getUserData(username) {
+  if (!USERDATA_TABLE) return null;
+
+  try {
+    const result = await docClient.send(new GetCommand({
+      TableName: USERDATA_TABLE,
+      Key: { username: username.toLowerCase() }
+    }));
+    return result.Item;
+  } catch (error) {
+    console.warn('User data read error:', error);
+    return null;
+  }
+}
+
+async function saveUserData(username, mistakes, games) {
+  if (!USERDATA_TABLE) return;
+
+  try {
+    await docClient.send(new PutCommand({
+      TableName: USERDATA_TABLE,
+      Item: {
+        username: username.toLowerCase(),
+        mistakes,
+        games,
+        mistakesCount: mistakes.length,
+        gamesCount: games.length,
+        updatedAt: new Date().toISOString(),
+      }
+    }));
+    console.log(`Saved user data for ${username}: ${mistakes.length} mistakes, ${games.length} games`);
+  } catch (error) {
+    console.warn('User data write error:', error);
+  }
+}
+
 // Process games - the actual analysis work
 async function processGames(jobId, games) {
   // Separate games into cached and uncached
@@ -887,6 +925,77 @@ exports.handler = async (event, context) => {
       const jobId = event.pathParameters?.jobId || path.split('/status/')[1];
       const result = await handleStatus(jobId);
       return { ...result, headers };
+    }
+
+    // GET /api/userdata/{username} - Fetch existing user data
+    if (method === 'GET' && path.includes('/userdata/')) {
+      const username = event.pathParameters?.username || path.split('/userdata/')[1];
+      if (!username) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Username required' })
+        };
+      }
+      const userData = await getUserData(username);
+      if (!userData) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({ error: 'No data found for user', username })
+        };
+      }
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          username: userData.username,
+          mistakes: userData.mistakes,
+          games: userData.games,
+          mistakesCount: userData.mistakesCount,
+          gamesCount: userData.gamesCount,
+          updatedAt: userData.updatedAt
+        })
+      };
+    }
+
+    // POST /api/userdata/{username} - Save user data
+    if (method === 'POST' && path.includes('/userdata/')) {
+      const username = event.pathParameters?.username || path.split('/userdata/')[1];
+      if (!username) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Username required' })
+        };
+      }
+      const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+      const { mistakes, games } = body;
+      if (!mistakes || !Array.isArray(mistakes)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Mistakes array required' })
+        };
+      }
+      if (!games || !Array.isArray(games)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Games array required' })
+        };
+      }
+      await saveUserData(username, mistakes, games);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          username: username.toLowerCase(),
+          mistakesCount: mistakes.length,
+          gamesCount: games.length
+        })
+      };
     }
 
     return {

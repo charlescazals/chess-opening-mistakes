@@ -207,3 +207,48 @@ function initStockfish() {
 function terminateStockfish() {
     // No-op - Stockfish runs on server now
 }
+
+// Fetch existing user data from DynamoDB (for returning users on new browsers)
+async function fetchUserData(username) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/userdata/${encodeURIComponent(username)}`);
+
+        if (response.status === 404) {
+            // No existing data for this user
+            return null;
+        }
+
+        if (!response.ok) {
+            throw new Error(`API error: ${response.status}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.warn('Error fetching user data:', error);
+        return null;
+    }
+}
+
+// Save user data to DynamoDB (after analysis completes)
+async function saveUserDataToCloud(username, mistakes, games) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/userdata/${encodeURIComponent(username)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ mistakes, games })
+        });
+
+        if (!response.ok) {
+            throw new Error(`API error: ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log('User data saved to cloud:', result);
+        return result;
+    } catch (error) {
+        console.warn('Error saving user data to cloud:', error);
+        return null;
+    }
+}

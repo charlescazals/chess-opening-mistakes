@@ -64,6 +64,11 @@ async function handleRefreshGames() {
             return await analyzeAllGames(onProgress);
         });
 
+        // Save updated data to cloud
+        const mistakes = getMistakes();
+        const games = getGames();
+        await saveUserDataToCloud(username, mistakes, games);
+
         // Reload the data in the UI
         loadDataFromStorage();
         applyFilters();
@@ -95,13 +100,47 @@ async function handleChangeUsername() {
     // Clear all existing data
     clearAllData();
 
+    const trimmedUsername = newUsername.trim();
+
     try {
         // Save new username
-        setUsername(newUsername.trim());
+        setUsername(trimmedUsername);
 
-        // Fetch games for new user
+        // First, check if we have existing data in the cloud for this user
+        let existingData = null;
+        await runWithProgress('Checking for existing data', async (onProgress) => {
+            onProgress({ stage: 'init', message: 'Checking for existing analysis...' });
+            existingData = await fetchUserData(trimmedUsername);
+            if (existingData) {
+                onProgress({ stage: 'complete', message: 'Found existing data!' });
+            } else {
+                onProgress({ stage: 'complete', message: 'No existing data found' });
+            }
+        });
+
+        if (existingData && existingData.mistakes && existingData.games) {
+            // Load existing data from cloud into localStorage
+            setGames(existingData.games);
+            setMistakes(existingData.mistakes);
+
+            // Mark all games as analyzed
+            for (const game of existingData.games) {
+                if (game.url) {
+                    addToAnalysisProgress(game.url);
+                }
+            }
+
+            console.log(`Loaded ${existingData.gamesCount} games and ${existingData.mistakesCount} mistakes from cloud`);
+
+            // Reload the data in the UI
+            loadDataFromStorage();
+            applyFilters();
+            return;
+        }
+
+        // No existing data - fetch and analyze games
         await runWithProgress('Fetching Games', async (onProgress) => {
-            return await fetchAllGames(newUsername.trim(), onProgress);
+            return await fetchAllGames(trimmedUsername, onProgress);
         });
 
         const games = getGames();
@@ -116,6 +155,10 @@ async function handleChangeUsername() {
         await runWithProgress('Analyzing Games', async (onProgress) => {
             return await analyzeAllGames(onProgress);
         });
+
+        // Save data to cloud for future sessions
+        const mistakes = getMistakes();
+        await saveUserDataToCloud(trimmedUsername, mistakes, games);
 
         // Reload the data in the UI
         loadDataFromStorage();

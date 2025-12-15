@@ -39,6 +39,15 @@ export class ChessMistakesStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN, // Keep cache data across deployments
     });
 
+    // DynamoDB table for storing user data (mistakes by username)
+    // Allows returning users on new browsers to retrieve their analyzed data
+    const userDataTable = new dynamodb.Table(this, 'UserDataTable', {
+      tableName: 'chess-mistakes-userdata',
+      partitionKey: { name: 'username', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN, // Keep user data across deployments
+    });
+
     // Lambda function for game analysis using Docker container with Stockfish
     const analysisLambda = new lambda.DockerImageFunction(this, 'AnalysisFunction', {
       functionName: 'chess-mistakes-analyzer',
@@ -48,6 +57,7 @@ export class ChessMistakesStack extends cdk.Stack {
       environment: {
         JOBS_TABLE_NAME: jobsTable.tableName,
         CACHE_TABLE_NAME: cacheTable.tableName,
+        USERDATA_TABLE_NAME: userDataTable.tableName,
       },
       architecture: lambda.Architecture.X86_64,
     });
@@ -55,6 +65,7 @@ export class ChessMistakesStack extends cdk.Stack {
     // Grant Lambda access to DynamoDB tables
     jobsTable.grantReadWriteData(analysisLambda);
     cacheTable.grantReadWriteData(analysisLambda);
+    userDataTable.grantReadWriteData(analysisLambda);
 
     // Grant Lambda permission to invoke itself (for async processing)
     // Using addToRolePolicy to avoid circular dependency
@@ -88,6 +99,13 @@ export class ChessMistakesStack extends cdk.Stack {
     const statusResource = apiResource.addResource('status');
     const jobIdResource = statusResource.addResource('{jobId}');
     jobIdResource.addMethod('GET', lambdaIntegration);
+
+    // GET /api/userdata/{username} - Get existing user data
+    // POST /api/userdata/{username} - Save user data
+    const userDataResource = apiResource.addResource('userdata');
+    const usernameResource = userDataResource.addResource('{username}');
+    usernameResource.addMethod('GET', lambdaIntegration);
+    usernameResource.addMethod('POST', lambdaIntegration);
 
     // S3 bucket for static website hosting
     const websiteBucket = new s3.Bucket(this, 'WebsiteBucket', {
