@@ -757,3 +757,10 @@ tbody tr {
     font-weight: bold;
     color: #e94560;
 }
+.selected-games .cached-info {
+    display: block;
+    font-size: 14px;
+    font-weight: normal;
+    color: #4ade80;
+    margin-top: 5px;
+}

@@ -1,6 +1,7 @@
 // Setup Screen - handles initial setup when no data exists
 
 let fetchedGamesForSelection = [];
+let cachedGameUrls = new Set();
 
 function showSetupScreen() {
     const setupScreen = document.getElementById('setup-screen');
@@ -22,7 +23,7 @@ function hideSetupScreen() {
     if (mainContent) mainContent.style.display = 'block';
 }
 
-function showDateSelectionScreen(games) {
+function showDateSelectionScreen(games, cachedUrls = []) {
     const setupScreen = document.getElementById('setup-screen');
     const dateSelectionScreen = document.getElementById('date-selection-screen');
     const mainContent = document.getElementById('main-content');
@@ -32,6 +33,7 @@ function showDateSelectionScreen(games) {
     if (mainContent) mainContent.style.display = 'none';
 
     fetchedGamesForSelection = games;
+    cachedGameUrls = new Set(cachedUrls);
     initializeDateSelection(games);
 }
 
@@ -108,13 +110,25 @@ function updateSelectionDisplay(yearsBack, games) {
 
     // Count games within range
     const gamesInRange = games.filter(game => getGameDate(game) >= cutoffDate);
-    const count = gamesInRange.length;
+    const totalCount = gamesInRange.length;
+
+    // Count cached vs uncached games
+    const cachedCount = gamesInRange.filter(game => cachedGameUrls.has(game.url)).length;
+    const uncachedCount = totalCount - cachedCount;
 
     // Update display
     const rangeText = `Last ${formatYearsLabel(yearsBack)}`;
     document.getElementById('selected-range-display').textContent = rangeText;
-    document.getElementById('selected-games-count').textContent = `${count} games to analyze`;
-    document.getElementById('analyze-count').textContent = count;
+
+    // Show "games left to analyze" with cached info
+    const selectedGamesEl = document.getElementById('selected-games-count');
+    if (cachedCount > 0) {
+        selectedGamesEl.innerHTML = `<strong>${uncachedCount}</strong> games left to analyze<br><span class="cached-info">${cachedCount} already analyzed (cached)</span>`;
+    } else {
+        selectedGamesEl.textContent = `${totalCount} games to analyze`;
+    }
+
+    document.getElementById('analyze-count').textContent = totalCount;
 }
 
 function getSelectedGames() {
@@ -198,8 +212,22 @@ function setupSetupScreen() {
                 return;
             }
 
+            // Check which games are already cached
+            let cachedUrls = [];
+            await runWithProgress('Checking cache', async (onProgress) => {
+                onProgress({ stage: 'init', message: 'Checking for previously analyzed games...' });
+                const cacheResult = await checkCachedGames(fetchedGames);
+                cachedUrls = cacheResult.cachedUrls || [];
+                onProgress({
+                    stage: 'complete',
+                    message: cachedUrls.length > 0
+                        ? `Found ${cachedUrls.length} previously analyzed games`
+                        : 'No cached games found'
+                });
+            });
+
             // Show date selection screen instead of immediately analyzing
-            showDateSelectionScreen(fetchedGames);
+            showDateSelectionScreen(fetchedGames, cachedUrls);
 
         } catch (error) {
             console.error('Setup error:', error);

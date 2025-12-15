@@ -976,6 +976,68 @@ exports.handler = async (event, context) => {
       };
     }
 
+    // POST /api/check-cache - Check which games are already cached
+    if (method === 'POST' && path.includes('/check-cache')) {
+      const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+      const { games } = body;
+
+      if (!games || !Array.isArray(games)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Games array required' })
+        };
+      }
+
+      // Build list of cache keys to check
+      const cacheKeys = games
+        .filter(g => g.url)
+        .map(g => ({
+          url: g.url,
+          player_color: g.player_color || 'white',
+          cacheKey: `${g.url}:${g.player_color || 'white'}`
+        }));
+
+      // BatchGetItem supports up to 100 keys per request
+      const cachedUrls = new Set();
+
+      for (let i = 0; i < cacheKeys.length; i += 100) {
+        const chunk = cacheKeys.slice(i, i + 100);
+        const keys = chunk.map(c => ({ gameUrl: c.cacheKey }));
+
+        try {
+          const result = await docClient.send(new BatchGetCommand({
+            RequestItems: {
+              [CACHE_TABLE]: {
+                Keys: keys,
+                ProjectionExpression: 'gameUrl' // Only fetch the key, not full data
+              }
+            }
+          }));
+
+          const items = result.Responses?.[CACHE_TABLE] || [];
+          for (const item of items) {
+            // Extract original URL from cache key (remove :color suffix)
+            const cacheKey = item.gameUrl;
+            const originalUrl = cacheKey.substring(0, cacheKey.lastIndexOf(':'));
+            cachedUrls.add(originalUrl);
+          }
+        } catch (error) {
+          console.warn('Cache check error:', error);
+        }
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          totalChecked: games.length,
+          cachedCount: cachedUrls.size,
+          cachedUrls: Array.from(cachedUrls)
+        })
+      };
+    }
+
     // POST /api/userdata/{username} - Save user data
     if (method === 'POST' && path.includes('/userdata/')) {
       const username = event.pathParameters?.username || path.split('/userdata/')[1];

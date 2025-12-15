@@ -282,6 +282,29 @@ async function fetchUserData(username) {
     }
 }
 
+// Check which games are already cached in DynamoDB
+async function checkCachedGames(games) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/check-cache`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ games })
+        });
+
+        if (!response.ok) {
+            console.warn('Cache check failed:', response.status);
+            return { cachedUrls: [], cachedCount: 0 };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.warn('Error checking cached games:', error);
+        return { cachedUrls: [], cachedCount: 0 };
+    }
+}
+
 // Save user data to DynamoDB (after analysis completes)
 async function saveUserDataToCloud(username, mistakes, games) {
     try {

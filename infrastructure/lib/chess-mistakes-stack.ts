@@ -32,7 +32,7 @@ export class ChessMistakesStack extends cdk.Stack {
     // DynamoDB table for caching analyzed games (persistent storage)
     // Key format: "gameUrl:playerColor" (e.g., "https://chess.com/game/123:white")
     // Player-specific because analysis only evaluates that player's moves
-    const cacheTable = new dynamodb.Table(this, 'AnalysisCacheTable', {
+    const cacheTable = new dynamodb.Table(this, 'AnalysisCacheTableV3', {
       tableName: 'chess-mistakes-cache',
       partitionKey: { name: 'gameUrl', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -41,7 +41,7 @@ export class ChessMistakesStack extends cdk.Stack {
 
     // DynamoDB table for storing user data (mistakes by username)
     // Allows returning users on new browsers to retrieve their analyzed data
-    const userDataTable = new dynamodb.Table(this, 'UserDataTable', {
+    const userDataTable = new dynamodb.Table(this, 'UserDataTableV3', {
       tableName: 'chess-mistakes-userdata',
       partitionKey: { name: 'username', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -106,6 +106,10 @@ export class ChessMistakesStack extends cdk.Stack {
     const usernameResource = userDataResource.addResource('{username}');
     usernameResource.addMethod('GET', lambdaIntegration);
     usernameResource.addMethod('POST', lambdaIntegration);
+
+    // POST /api/check-cache - Check which games are already cached
+    const checkCacheResource = apiResource.addResource('check-cache');
+    checkCacheResource.addMethod('POST', lambdaIntegration);
 
     // S3 bucket for static website hosting
     const websiteBucket = new s3.Bucket(this, 'WebsiteBucket', {
