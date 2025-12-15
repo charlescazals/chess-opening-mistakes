@@ -128,6 +128,10 @@ async function analyzeAllGames(onProgress) {
 }
 
 async function pollForResults(jobId, gamesToProcess, existingMistakes, onProgress) {
+    let lastSavedMistakeCount = 0; // Track to avoid redundant cloud saves
+    const username = getUsername();
+    const allGames = getGames();
+
     while (isAnalyzing) {
         try {
             const response = await fetch(`${API_BASE_URL}/status/${jobId}`, {
@@ -159,6 +163,16 @@ async function pollForResults(jobId, gamesToProcess, existingMistakes, onProgres
                 });
             }
 
+            // Save partial results to cloud periodically (when new mistakes are found)
+            const partialMistakes = status.mistakes || [];
+            if (partialMistakes.length > lastSavedMistakeCount && username) {
+                const allMistakes = [...existingMistakes, ...partialMistakes];
+                setMistakes(allMistakes);
+                await saveUserDataToCloud(username, allMistakes, allGames);
+                lastSavedMistakeCount = partialMistakes.length;
+                console.log(`Saved ${allMistakes.length} mistakes to cloud (partial save)`);
+            }
+
             if (status.status === 'completed') {
                 const newMistakes = status.mistakes || [];
                 const allMistakes = [...existingMistakes, ...newMistakes];
@@ -169,6 +183,11 @@ async function pollForResults(jobId, gamesToProcess, existingMistakes, onProgres
                 }
 
                 setMistakes(allMistakes);
+
+                // Final save to cloud
+                if (username) {
+                    await saveUserDataToCloud(username, allMistakes, allGames);
+                }
 
                 if (onProgress) {
                     onProgress({
@@ -190,10 +209,15 @@ async function pollForResults(jobId, gamesToProcess, existingMistakes, onProgres
 
         } catch (error) {
             if (error.name === 'AbortError') {
-                // On cancel, fetch partial results before throwing
+                // On cancel, fetch partial results and save to cloud
                 const partialResults = await fetchPartialResults(jobId, existingMistakes);
                 if (partialResults.newMistakes > 0) {
                     setMistakes(partialResults.allMistakes);
+                    // Save partial results to cloud on cancel
+                    if (username) {
+                        await saveUserDataToCloud(username, partialResults.allMistakes, allGames);
+                        console.log(`Saved ${partialResults.allMistakes.length} mistakes to cloud (cancelled)`);
+                    }
                 }
                 error.partialMistakes = partialResults.allMistakes;
                 throw error;
@@ -208,6 +232,11 @@ async function pollForResults(jobId, gamesToProcess, existingMistakes, onProgres
     const partialResults = await fetchPartialResults(jobId, existingMistakes);
     if (partialResults.newMistakes > 0) {
         setMistakes(partialResults.allMistakes);
+        // Save to cloud when loop exits
+        if (username) {
+            await saveUserDataToCloud(username, partialResults.allMistakes, allGames);
+            console.log(`Saved ${partialResults.allMistakes.length} mistakes to cloud (loop exit)`);
+        }
     }
     return partialResults.allMistakes;
 }
