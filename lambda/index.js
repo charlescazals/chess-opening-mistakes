@@ -11,8 +11,8 @@ const ANALYSIS_DEPTH = 18;
 const MOVES_TO_ANALYZE = 14;
 const MISTAKE_THRESHOLD = 100;
 const STOCKFISH_PATH = '/usr/local/bin/stockfish';
-const BATCH_SIZE = 50; // Games per parallel Lambda invocation
-const MAX_PARALLEL_LAMBDAS = 20; // Maximum concurrent Lambda invocations
+const BATCH_SIZE = 10; // Games per parallel Lambda invocation
+const MAX_PARALLEL_LAMBDAS = 100; // Maximum concurrent Lambda invocations
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
