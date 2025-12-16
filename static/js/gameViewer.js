@@ -56,7 +56,7 @@ function selectSequence(seqData) {
                 </div>
                 <div class="game-right">
                     ${game.result ? `<span class="game-result ${resultClass}">${game.result}</span>` : ''}
-                    <span class="game-date">${formatDate(game.end_time)}</span>
+                    <span class="game-date">${formatDate(new Date(game.end_time * 1000))}</span>
                 </div>
             </div>
         `;
