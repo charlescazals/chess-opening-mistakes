@@ -65,6 +65,14 @@ function formatYearsLabel(years) {
     return `${years} years`;
 }
 
+function updateSliderFill(slider) {
+    const min = parseFloat(slider.min);
+    const max = parseFloat(slider.max);
+    const value = parseFloat(slider.value);
+    const percentage = ((value - min) / (max - min)) * 100;
+    slider.style.background = `linear-gradient(to right, #e94560 0%, #e94560 ${percentage}%, #0f3460 ${percentage}%, #0f3460 100%)`;
+}
+
 function initializeDateSelection(games) {
     if (games.length === 0) return;
 
@@ -97,10 +105,12 @@ function initializeDateSelection(games) {
 
     // Initial update
     updateSelectionDisplay(1, games);
+    updateSliderFill(slider);
 
     // Add slider event listener
     slider.oninput = function() {
         updateSelectionDisplay(parseFloat(this.value), games);
+        updateSliderFill(this);
     };
 }
 
