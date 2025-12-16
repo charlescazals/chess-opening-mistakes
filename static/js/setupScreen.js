@@ -246,15 +246,15 @@ function setupSetupScreen() {
                     return;
                 }
 
-                // Save filtered games to localStorage
+                // Save filtered games to localStorage (without PGN for storage efficiency)
                 setGames(selectedGames);
 
                 // Hide date selection screen and show progress
                 hideDateSelectionScreen();
 
-                // Analyze games
+                // Analyze games - pass games directly (with PGN) since localStorage version has PGN stripped
                 await runWithProgress('Analyzing Games', async (onProgress) => {
-                    return await analyzeAllGames(onProgress);
+                    return await analyzeAllGames(onProgress, selectedGames);
                 });
 
                 // Save data to cloud for future sessions

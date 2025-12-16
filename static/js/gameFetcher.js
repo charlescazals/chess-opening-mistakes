@@ -206,8 +206,8 @@ async function fetchAllGames(username, onProgress) {
             });
         }
 
-        // Save to localStorage
-        setGames(allGames);
+        // Don't save to localStorage here - games with PGN are too large
+        // Games will be stored (without PGN) after analysis or when loading from cloud
 
         return allGames;
 

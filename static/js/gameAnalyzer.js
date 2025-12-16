@@ -12,13 +12,13 @@ let analysisAbortController = null;
 let isAnalyzing = false;
 let currentJobId = null;
 
-async function analyzeAllGames(onProgress) {
+async function analyzeAllGames(onProgress, gamesToAnalyze = null) {
     isAnalyzing = true;
     analysisAbortController = new AbortController();
 
     try {
-        // Get games and progress
-        const games = getGames();
+        // Use provided games (with PGN) or fall back to localStorage (without PGN, for resume)
+        const games = gamesToAnalyze || getGames();
         const processedUrls = new Set(getAnalysisProgress());
         let allMistakes = getMistakes();
 
@@ -314,12 +314,18 @@ async function fetchUserData(username) {
 // Check which games are already cached in DynamoDB
 async function checkCachedGames(games) {
     try {
+        // Only send url and player_color - no need for PGN or other data
+        const minimalGames = games.map(g => ({
+            url: g.url,
+            player_color: g.player_color
+        }));
+
         const response = await fetch(`${API_BASE_URL}/check-cache`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ games })
+            body: JSON.stringify({ games: minimalGames })
         });
 
         if (!response.ok) {
@@ -337,12 +343,18 @@ async function checkCachedGames(games) {
 // Save user data to DynamoDB (after analysis completes)
 async function saveUserDataToCloud(username, mistakes, games) {
     try {
+        // Strip PGN from games before saving - it's large and not needed after analysis
+        const gamesWithoutPgn = games.map(game => {
+            const { pgn, ...gameWithoutPgn } = game;
+            return gameWithoutPgn;
+        });
+
         const response = await fetch(`${API_BASE_URL}/userdata/${encodeURIComponent(username)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ mistakes, games })
+            body: JSON.stringify({ mistakes, games: gamesWithoutPgn })
         });
 
         if (!response.ok) {

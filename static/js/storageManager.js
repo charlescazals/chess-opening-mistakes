@@ -29,9 +29,40 @@ function getGames() {
     }
 }
 
+// Strip PGN from games to reduce storage size (PGN is only needed during analysis)
+function stripPgnFromGames(games) {
+    return games.map(game => {
+        const { pgn, ...gameWithoutPgn } = game;
+        return gameWithoutPgn;
+    });
+}
+
 function setGames(games) {
-    localStorage.setItem(STORAGE_KEYS.GAMES, JSON.stringify(games));
-    localStorage.setItem(STORAGE_KEYS.LAST_FETCH, Date.now().toString());
+    // Strip PGN before storing - it's large and only needed during analysis
+    const gamesWithoutPgn = stripPgnFromGames(games);
+    const jsonData = JSON.stringify(gamesWithoutPgn);
+
+    console.log(`setGames: ${games.length} games, size without PGN: ${(jsonData.length / 1024).toFixed(1)} KB`);
+
+    try {
+        localStorage.setItem(STORAGE_KEYS.GAMES, jsonData);
+        localStorage.setItem(STORAGE_KEYS.LAST_FETCH, Date.now().toString());
+    } catch (e) {
+        if (e.name === 'QuotaExceededError' || e.message.includes('quota')) {
+            console.error('localStorage quota exceeded. Clearing old data and retrying...');
+            // Clear all chess data and retry
+            clearAllData();
+            try {
+                localStorage.setItem(STORAGE_KEYS.GAMES, jsonData);
+                localStorage.setItem(STORAGE_KEYS.LAST_FETCH, Date.now().toString());
+            } catch (e2) {
+                console.error('Still cannot store games after clearing. Size:', jsonData.length);
+                throw e2;
+            }
+        } else {
+            throw e;
+        }
+    }
 }
 
 function getMistakes() {
