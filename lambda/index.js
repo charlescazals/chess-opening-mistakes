@@ -286,24 +286,38 @@ async function updateJobProgress(jobId, current, total, mistakes, status = 'proc
   }));
 }
 
-async function createJob(jobId, totalGames, totalBatches = 1) {
+async function createJob(jobId, totalGames, totalBatches = 1, username = null, games = null) {
   const ttl = Math.floor(Date.now() / 1000) + 7200; // 2 hours for long jobs
+
+  const item = {
+    jobId,
+    status: 'processing',
+    currentGame: 0,
+    totalGames,
+    totalBatches,
+    completedBatches: 0,
+    mistakesFound: 0,
+    mistakes: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ttl
+  };
+
+  // Store username and games for server-side userdata save on completion
+  if (username) {
+    item.username = username.toLowerCase();
+  }
+  if (games) {
+    // Strip PGN from games before storing (not needed after analysis)
+    item.games = games.map(g => {
+      const { pgn, ...gameWithoutPgn } = g;
+      return gameWithoutPgn;
+    });
+  }
 
   await docClient.send(new PutCommand({
     TableName: JOBS_TABLE,
-    Item: {
-      jobId,
-      status: 'processing',
-      currentGame: 0,
-      totalGames,
-      totalBatches,
-      completedBatches: 0,
-      mistakesFound: 0,
-      mistakes: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      ttl
-    }
+    Item: item
   }));
 }
 
@@ -405,6 +419,13 @@ async function aggregateJobResults(jobId, totalBatches) {
     }
   }
 
+  // Fetch main job to get username and games for userdata save
+  const jobResult = await docClient.send(new GetCommand({
+    TableName: JOBS_TABLE,
+    Key: { jobId }
+  }));
+  const job = jobResult.Item;
+
   // Update main job as completed
   const ttl = Math.floor(Date.now() / 1000) + 7200;
   await docClient.send(new UpdateCommand({
@@ -420,6 +441,12 @@ async function aggregateJobResults(jobId, totalBatches) {
       ':ttl': ttl
     }
   }));
+
+  // Save userdata server-side (ensures userdata is populated even if frontend fails)
+  if (job && job.username && job.games) {
+    await saveUserData(job.username, allMistakes, job.games);
+    console.log(`Saved userdata for ${job.username} (async completion path)`);
+  }
 }
 
 async function saveJobResults(jobId, mistakes) {
@@ -716,7 +743,7 @@ function splitIntoBatches(array, batchSize) {
 }
 
 async function handleAnalyze(body, functionName) {
-  const { games } = body;
+  const { games, username } = body;
 
   if (!games || !Array.isArray(games) || games.length === 0) {
     return {
@@ -751,8 +778,20 @@ async function handleAnalyze(body, functionName) {
   // If all games were cached, return immediately
   if (allCached) {
     const jobId = uuidv4();
-    await createJob(jobId, games.length, 1);
+    await createJob(jobId, games.length, 1, username, games);
     await saveJobResults(jobId, cachedMistakes);
+
+    // Save userdata server-side (ensures userdata is populated even if frontend fails)
+    if (username) {
+      // Strip PGN from games before saving
+      const gamesWithoutPgn = games.map(g => {
+        const { pgn, ...gameWithoutPgn } = g;
+        return gameWithoutPgn;
+      });
+      await saveUserData(username, cachedMistakes, gamesWithoutPgn);
+      console.log(`Saved userdata for ${username} (all cached path)`);
+    }
+
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -777,7 +816,7 @@ async function handleAnalyze(body, functionName) {
   }
 
   const jobId = uuidv4();
-  await createJob(jobId, games.length, finalBatches.length);
+  await createJob(jobId, games.length, finalBatches.length, username, games);
 
   console.log(`Invoking ${finalBatches.length} parallel workers for job ${jobId} (${games.length} games)`);
 

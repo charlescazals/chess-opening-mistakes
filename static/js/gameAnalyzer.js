@@ -47,13 +47,14 @@ async function analyzeAllGames(onProgress, gamesToAnalyze = null) {
             });
         }
 
-        // Send games to Lambda for analysis
+        // Send games to Lambda for analysis (include username for server-side userdata save)
+        const username = getUsername();
         const response = await fetch(`${API_BASE_URL}/analyze`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ games: gamesToProcess }),
+            body: JSON.stringify({ games: gamesToProcess, username }),
             signal: analysisAbortController.signal
         });
 
@@ -75,6 +76,12 @@ async function analyzeAllGames(onProgress, gamesToAnalyze = null) {
             }
 
             setMistakes(allMistakes);
+
+            // Save to cloud (important: ensures userdata table is populated even when all games were cached)
+            const username = getUsername();
+            if (username) {
+                await saveUserDataToCloud(username, allMistakes, games);
+            }
 
             if (onProgress) {
                 onProgress({
